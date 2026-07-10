@@ -319,6 +319,11 @@ export function WorkspacePage({
     maxWidth: 600,
     onCollapse: () => setPanelState('collapsed'),
   })
+  // Bring the panel into view without downgrading an already-maximized panel
+  // back to the narrow 'open' width — only promote it out of 'collapsed'.
+  const ensurePanelVisible = useCallback(() => {
+    setPanelState(prev => prev === 'collapsed' ? 'open' : prev)
+  }, [])
   // ── Board drawer (slides over chat from the left) ──
   const boardTasks = boardStore.tasks
   const boardMaxUpdatedAt = useMemo(
@@ -742,11 +747,11 @@ export function WorkspacePage({
     ensureSessionOpen(taskId)
     sessionStore.setActiveSession(taskId)
     setActiveView({ kind: 'session', taskId })
-    setPanelState('open')
+    ensurePanelVisible()
     setPanelTab('chat')
     setChildDetailTaskId(null)
     chatStore.markRead(session.channelId)
-  }, [sessions, ensureSessionOpen, sessionStore, chatStore])
+  }, [sessions, ensureSessionOpen, sessionStore, chatStore, ensurePanelVisible])
 
   const handleCloseSessionView = useCallback((taskId: string) => {
     const remaining = openSessionIds.filter(id => id !== taskId)
@@ -781,20 +786,20 @@ export function WorkspacePage({
     // Company mode child → open child detail
     if (isCompanyMode && session?.mode === 'child') {
       setChildDetailTaskId(taskId)
-      setPanelState('open')
+      ensurePanelVisible()
       return
     }
 
     focusSession(taskId)
-  }, [sessions, sessionStore, isCompanyMode, focusSession])
+  }, [sessions, sessionStore, isCompanyMode, focusSession, ensurePanelVisible])
 
   const handleSelectSecretary = useCallback(() => {
     setActiveView({ kind: 'secretary' })
     sessionStore.setActiveSession(null)
     setChildDetailTaskId(null)
-    setPanelState('open')
+    ensurePanelVisible()
     chatStore.markRead(secretaryChannelId)
-  }, [sessionStore, chatStore, secretaryChannelId])
+  }, [sessionStore, chatStore, secretaryChannelId, ensurePanelVisible])
 
   // ── Board interactions ──
   const handleCardClick = useCallback((task: { id: string }) => {
@@ -802,7 +807,7 @@ export function WorkspacePage({
     if (isCompanyMode && boardTask) {
       setChildDetailTaskId(null)
       setActiveView({ kind: 'task-detail', taskId: boardTask.id })
-      setPanelState('open')
+      ensurePanelVisible()
       setPanelTab('info')
       return
     }
@@ -833,12 +838,12 @@ export function WorkspacePage({
         ensureSessionOpen(task.id)
         sessionStore.setActiveSession(task.id)
         setActiveView({ kind: 'session', taskId: task.id })
-        setPanelState('open')
+        ensurePanelVisible()
         setPanelTab('chat')
         onCollabSync?.()
       }
     }
-  }, [sessions, boardStore.tasks, sessionStore, focusSession, ensureSessionOpen, onCollabSync, isCompanyMode])
+  }, [sessions, boardStore.tasks, sessionStore, focusSession, ensureSessionOpen, onCollabSync, isCompanyMode, ensurePanelVisible])
 
   const handleQuickCreate = useCallback((title: string) => {
     if (!boardStore.activeBoardId) return
@@ -1044,11 +1049,11 @@ export function WorkspacePage({
     ))
     if (session) {
       setChildDetailTaskId(session.taskId)
-      setPanelState('open')
+      ensurePanelVisible()
       setPanelTab('chat')
       chatStore.markRead(session.channelId)
     }
-  }, [sessions, chatStore])
+  }, [sessions, chatStore, ensurePanelVisible])
 
   const handleWorkItemClick = useCallback((executionTurnId: string) => {
     // Always forward to ExecutionPanel. The panel's lookup matches against
