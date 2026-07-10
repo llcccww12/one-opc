@@ -8,6 +8,7 @@ import { CollisionEditor } from './components/CollisionEditor'
 import { registerTestRunner } from './game/test/eventTestRunner'
 import { getOffices, type OfficeConfig } from './game/map/OfficeStore'
 import { getOfficeDeskSeats } from './game/map/InteractionZones'
+import { HelpPanel } from './help/HelpPanel'
 import type { AgentInfo, EmployeeDetailPayload, OrgCreateMemberInput, OrgSavedCreatePayload, OrgEmployee, OrgInfoPayload, OrgRole, ReorgProposalInfo, SavedOrgSummary, SocketStatus, TalentTemplate, VisualEvent, VisualSnapshot } from './types/visual'
 import { useBoardStore, type BoardStoreState } from './kanban/BoardStore'
 import { WorkspacePage } from './workspace/WorkspacePage'
@@ -482,6 +483,7 @@ export default function App() {
   const [activePage, setActivePage] = useState<AppPage>('workspace')
   const [swarmAgents, setSwarmAgents] = useState<AgentInfo[]>([])
   const [showDevTools, setShowDevTools] = useState(false)
+  const [showHelp, setShowHelp] = useState(false)
   const [lastTaskDoneAgent, setLastTaskDoneAgent] = useState<string | null>(null)
   const [globalExecMode, setGlobalExecMode] = useState<AppExecMode>('task')
   const [globalCompanyProfile, setGlobalCompanyProfile] = useState<'corporate' | 'custom'>('corporate')
@@ -2246,6 +2248,10 @@ export default function App() {
           </button>
         </div>
         <div className="rail-bottom">
+          <button className={`rail-btn${showHelp ? ' active' : ''}`} onClick={() => setShowHelp((v) => !v)} title="使用手册">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+            <span className="rail-btn-label">使用手册</span>
+          </button>
           <button className="rail-btn" onClick={toggleRailExpanded} title={railExpanded ? 'Collapse' : 'Expand'}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
               {railExpanded ? <path d="M15 6l-6 6 6 6"/> : <path d="M9 6l6 6-6 6"/>}
@@ -2641,6 +2647,8 @@ export default function App() {
         </aside>
       </main>
       </div>
+
+      <HelpPanel open={showHelp} onClose={() => setShowHelp(false)} />
 
       {/* Developer Tools Overlay */}
       {showDevTools && (
