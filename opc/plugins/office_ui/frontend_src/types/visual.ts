@@ -400,6 +400,7 @@ export interface ConnectorInfo {
   connector_type: string
   description: string
   actions: string[]
+  status: 'connected' | 'disconnected'
 }
 
 export interface InstalledPackageInfo {

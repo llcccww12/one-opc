@@ -523,6 +523,37 @@ export class VisualSocketClient {
     this.send({ type: 'market_uninstall', package_id: packageId })
   }
 
+  // ── Connectors (MCP servers) ────────────────────────────────────────────
+
+  addConnector(data: {
+    name: string
+    type: 'local' | 'remote'
+    command?: string[]
+    url?: string
+    headers?: Record<string, string>
+    env?: Record<string, string>
+    tools_filter?: string[]
+  }): void {
+    this.send({
+      type: 'add_connector',
+      name: data.name,
+      connector_type: data.type,
+      command: data.command,
+      url: data.url,
+      headers: data.headers,
+      env: data.env,
+      tools_filter: data.tools_filter,
+    })
+  }
+
+  removeConnector(connectorId: string): void {
+    this.send({ type: 'remove_connector', connector_id: connectorId })
+  }
+
+  setConnectorRoles(connectorId: string, roleIds: string[]): void {
+    this.send({ type: 'set_connector_roles', connector_id: connectorId, role_ids: roleIds })
+  }
+
   // ── Org Editing ───────────────────────────────────────────────────────
 
   addRole(roleId: string, name: string, responsibility: string, reportsTo: string = 'owner', icon?: string | null): void {

@@ -445,6 +445,12 @@ class OrgService:
             except Exception:
                 pass
         try:
+            from .connectors import ConnectorsService
+
+            result["connectors"] = await ConnectorsService(self.context).list_connectors()
+        except Exception:
+            pass
+        try:
             result["installed_packages"] = [
                 package.model_dump() if hasattr(package, "model_dump") else package
                 for package in engine.config.org.installed_packages

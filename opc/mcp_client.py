@@ -84,6 +84,12 @@ class _MCPConnectionBase:
         self._exit_stack = AsyncExitStack()
         self._session: ClientSession | None = None
         self._tools: list[dict[str, Any]] = []
+        self.registered_tool_names: list[str] = []
+
+    @property
+    def tool_names(self) -> list[str]:
+        """Names as registered in the OPC ToolRegistry (server-prefixed)."""
+        return list(self.registered_tool_names)
 
     async def start(self) -> None:
         raise NotImplementedError
@@ -282,6 +288,7 @@ class MCPManager:
                 category="mcp",
             )
             definitions.append(td)
+        conn.registered_tool_names = [td.name for td in definitions]
         return definitions
 
     @staticmethod
@@ -289,6 +296,30 @@ class MCPManager:
         async def _call(**kwargs: Any) -> dict[str, Any]:
             return await conn.call_tool(tool_name, kwargs)
         return _call
+
+    def get_tool_names(self, name: str) -> list[str]:
+        """Registered (server-prefixed) tool names for a connected server, or []."""
+        conn = self._servers.get(name)
+        return conn.tool_names if conn else []
+
+    def is_connected(self, name: str) -> bool:
+        return name in self._servers
+
+    async def disconnect(self, name: str) -> bool:
+        """Stop and remove a connection by name. Returns False if it wasn't connected."""
+        conn = self._servers.pop(name, None)
+        if conn is None:
+            return False
+        try:
+            await conn.stop()
+        except Exception as exc:
+            # stdio_client's AsyncExitStack holds anyio cancel scopes that are
+            # task-affine — closing them from a different task than the one
+            # that opened them (e.g. a later WS request) raises here. The
+            # connection is already removed from tracking above; log and move
+            # on rather than blocking removal on a subprocess teardown quirk.
+            logger.warning(f"Error stopping MCP server '{name}' during disconnect: {exc}")
+        return True
 
     async def shutdown(self) -> None:
         for conn in self._servers.values():

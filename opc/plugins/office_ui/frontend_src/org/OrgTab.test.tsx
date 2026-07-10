@@ -26,6 +26,8 @@ const src = readFileSync(join(here, 'OrgTab.tsx'), 'utf8')
 const createModalSrc = readFileSync(join(here, 'OrgCreateModal.tsx'), 'utf8')
 const visualTypesSrc = readFileSync(join(here, '..', 'types', 'visual.ts'), 'utf8')
 const orgCssSrc = readFileSync(join(here, 'org.css'), 'utf8')
+const wsClientSrc = readFileSync(join(here, '..', 'lib', 'wsClient.ts'), 'utf8')
+const archMarketplaceSrc = readFileSync(join(here, 'ArchitectureMarketplace.tsx'), 'utf8')
 
 // ── 1. Four sub-tab labels declared ──
 for (const label of ['Team', 'Runtime', 'Architecture', 'Employees']) {
@@ -126,3 +128,51 @@ assert.match(
 console.log(
   'OrgTab.test.tsx: OK (tabs, marketplace panels, create-org prompt, select option theme colors)',
 )
+
+// ── 9. Connectors (MCP servers) WS wiring ──
+for (const [method, wireType] of [
+  ['addConnector', 'add_connector'],
+  ['removeConnector', 'remove_connector'],
+  ['setConnectorRoles', 'set_connector_roles'],
+] as const) {
+  assert.match(
+    wsClientSrc,
+    new RegExp(`${method}\\([^)]*\\)[\\s\\S]{0,200}type:\\s*['"]${wireType}['"]`),
+    `wsClient.ts must define ${method}() sending WS type "${wireType}"`,
+  )
+}
+assert.doesNotMatch(
+  wsClientSrc,
+  /type:\s*['"]add_connector['"],\s*\.\.\.data/,
+  'addConnector must not spread the connector-type field over the WS envelope "type" discriminator',
+)
+assert.match(
+  archMarketplaceSrc,
+  /connectors:\s*ConnectorInfo\[\]/,
+  'ArchitectureMarketplace must accept a connectors prop typed as ConnectorInfo[]',
+)
+assert.match(
+  archMarketplaceSrc,
+  /import\s*\{\s*AddConnectorModal,\s*type\s*AddConnectorPayload\s*\}\s*from\s*['"]\.\/AddConnectorModal['"]/,
+  'ArchitectureMarketplace must import AddConnectorModal',
+)
+assert.match(
+  archMarketplaceSrc,
+  /import\s*\{\s*ConnectorRolePicker\s*\}\s*from\s*['"]\.\/ConnectorRolePicker['"]/,
+  'ArchitectureMarketplace must import ConnectorRolePicker',
+)
+assert.match(
+  src,
+  /connectors=\{data\.connectors\}/,
+  'OrgTab must pass data.connectors down to ArchitectureMarketplace',
+)
+for (const prop of ['onAddConnector', 'onRemoveConnector', 'onSetConnectorRoles']) {
+  assert.match(
+    src,
+    new RegExp(`${prop}\\??:`),
+    `OrgTab must declare a ${prop} prop`,
+  )
+}
+
+console.log('OrgTab.test.tsx: OK (connectors WS wiring)')
+

@@ -9704,6 +9704,56 @@ class WSHandler:
             logger.warning(f"Failed to update role: {exc}")
             await self._send_ack(ws, ok=False, error=str(exc))
 
+    async def _handle_add_connector(self, ws: Any, data: dict) -> None:
+        """Connect a new MCP server and register it as a connector."""
+        try:
+            result = await self._ensure_office_services().connectors.add_connector(data)
+            await self._publish_service_result(result)
+            connector = dict(result.payload.get("connector", {}) or {})
+            await self._send_ack(ws, ok=True, action="connector_added", connector_id=connector.get("connector_id"))
+            await self._broadcast_org_info()
+        except ServiceError as exc:
+            await self._send_service_error(ws, exc, action="add_connector")
+        except Exception as exc:
+            logger.warning(f"Failed to add connector: {exc}")
+            await self._send_ack(ws, ok=False, error=str(exc))
+
+    async def _handle_remove_connector(self, ws: Any, data: dict) -> None:
+        """Disconnect and remove an MCP server connector."""
+        try:
+            connector_id = str(data.get("connector_id", "") or "").strip()
+            if not connector_id:
+                await self._send_ack(ws, ok=False, error="connector_id required")
+                return
+            result = await self._ensure_office_services().connectors.remove_connector(connector_id)
+            await self._publish_service_result(result)
+            await self._send_ack(ws, ok=True, action="connector_removed", connector_id=connector_id)
+            await self._broadcast_org_info()
+        except ServiceError as exc:
+            await self._send_service_error(ws, exc, action="remove_connector")
+        except Exception as exc:
+            logger.warning(f"Failed to remove connector: {exc}")
+            await self._send_ack(ws, ok=False, error=str(exc))
+
+    async def _handle_set_connector_roles(self, ws: Any, data: dict) -> None:
+        """Set which roles may use a connector's tools."""
+        try:
+            connector_id = str(data.get("connector_id", "") or "").strip()
+            if not connector_id:
+                await self._send_ack(ws, ok=False, error="connector_id required")
+                return
+            result = await self._ensure_office_services().connectors.set_connector_roles(
+                connector_id, list(data.get("role_ids", []) or []),
+            )
+            await self._publish_service_result(result)
+            await self._send_ack(ws, ok=True, action="connector_roles_updated", connector_id=connector_id)
+            await self._broadcast_org_info()
+        except ServiceError as exc:
+            await self._send_service_error(ws, exc, action="set_connector_roles")
+        except Exception as exc:
+            logger.warning(f"Failed to set connector roles: {exc}")
+            await self._send_ack(ws, ok=False, error=str(exc))
+
     async def _handle_update_org_strategy(self, ws: Any, data: dict) -> None:
         try:
             result = await self._ensure_office_services().org.update_org_strategy(
@@ -9821,6 +9871,10 @@ class WSHandler:
         "market_export":       _handle_market_export,
         "market_install":      _handle_market_install,
         "market_uninstall":    _handle_market_uninstall,
+        # Connectors (MCP servers)
+        "add_connector":       _handle_add_connector,
+        "remove_connector":    _handle_remove_connector,
+        "set_connector_roles": _handle_set_connector_roles,
         # Org config import/export
         "org_config_export":   _handle_org_config_export,
         "org_config_import":   _handle_org_config_import,

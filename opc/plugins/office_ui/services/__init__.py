@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from .agent import AgentService
 from .comms import CommsService
+from .connectors import ConnectorsService
 from .context import ModeState, OfficeServiceContext
 from .kanban import KanbanService
 from .market import MarketService
@@ -29,11 +30,13 @@ class OfficeServices:
         self.market = MarketService(context)
         self.comms = CommsService(context)
         self.work_item = WorkItemService(context)
+        self.connectors = ConnectorsService(context)
 
 
 __all__ = [
     "AgentService",
     "CommsService",
+    "ConnectorsService",
     "KanbanService",
     "MarketService",
     "ModeState",

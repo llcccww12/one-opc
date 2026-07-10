@@ -4,10 +4,14 @@ import type {
   ArchitecturePresetDetail,
   InstalledPackageInfo,
   ChannelStatusInfo,
+  ConnectorInfo,
+  OrgRole,
   ReorgProposalInfo,
 } from '../types/visual'
 import { PackageCard } from './PackageCard'
 import { CollapsibleSection } from './CollapsibleSection'
+import { AddConnectorModal, type AddConnectorPayload } from './AddConnectorModal'
+import { ConnectorRolePicker } from './ConnectorRolePicker'
 
 /* ── Inline SVG icon data-URIs (no external CDN) ────────────────── */
 const ICON = {
@@ -15,6 +19,7 @@ const ICON = {
   arch: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%23888' d='M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z'/%3E%3C/svg%3E",
   packages: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%23888' d='M20.54 5.23l-1.39-1.68C18.88 3.21 18.47 3 18 3H6c-.47 0-.88.21-1.16.55L3.46 5.23C3.17 5.57 3 6.02 3 6.5V19c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V6.5c0-.48-.17-.93-.46-1.27zM12 17.5L6.5 12H10v-2h4v2h3.5L12 17.5zM5.12 5l.81-1h12l.94 1H5.12z'/%3E%3C/svg%3E",
   channels: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%23888' d='M1 9l2 2c4.97-4.97 13.03-4.97 18 0l2-2C16.93 2.93 7.08 2.93 1 9zm8 8l3 3 3-3c-1.65-1.66-4.34-1.66-6 0zm-4-4l2 2c2.76-2.76 7.24-2.76 10 0l2-2C15.14 9.14 8.87 9.14 5 13z'/%3E%3C/svg%3E",
+  connector: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%23888' d='M13 7h-2v4H7v2h4v4h2v-4h4v-2h-4V7zm-1-5C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z'/%3E%3C/svg%3E",
   reorg: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%23888' d='M6.99 11L3 15l3.99 4v-3H14v-2H6.99v-3zM21 9l-3.99-4v3H10v2h7.01v3L21 9z'/%3E%3C/svg%3E",
   importPkg: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%23888' d='M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z'/%3E%3C/svg%3E",
   arrow: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%23888' d='M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6-1.41-1.41z'/%3E%3C/svg%3E",
@@ -42,18 +47,24 @@ interface ArchitectureMarketplaceProps {
   onClearPreview: () => void
   installedPackages: InstalledPackageInfo[]
   channels: ChannelStatusInfo[]
+  connectors: ConnectorInfo[]
+  roles: OrgRole[]
   reorgProposals: ReorgProposalInfo[]
   isCustomMode: boolean
   onReorgDecide: (proposalId: string, approved: boolean, notes?: string) => void
   onMarketInstall: (path: string, strategy: string) => void
   onMarketUninstall: (packageId: string) => void
+  onAddConnector: (payload: AddConnectorPayload) => void
+  onRemoveConnector: (connectorId: string) => void
+  onSetConnectorRoles: (connectorId: string, roleIds: string[]) => void
 }
 
 export function ArchitectureMarketplace({
   presets, installedIds, previewData, applyingPresetId, readOnly,
   onPreview, onApplyPreset, onClearPreview,
-  installedPackages, channels, reorgProposals, isCustomMode,
+  installedPackages, channels, connectors, roles, reorgProposals, isCustomMode,
   onReorgDecide, onMarketInstall, onMarketUninstall,
+  onAddConnector, onRemoveConnector, onSetConnectorRoles,
 }: ArchitectureMarketplaceProps) {
   const [search, setSearch] = useState('')
   const [activeCategory, setActiveCategory] = useState<string | null>(null)
@@ -61,6 +72,8 @@ export function ArchitectureMarketplace({
   const [showImportForm, setShowImportForm] = useState(false)
   const [importPath, setImportPath] = useState('')
   const [uninstallingId, setUninstallingId] = useState<string | null>(null)
+  const [showAddConnector, setShowAddConnector] = useState(false)
+  const [rolePickerConnectorId, setRolePickerConnectorId] = useState<string | null>(null)
 
   const categories = useMemo(() => {
     const cats = new Set<string>()
@@ -103,6 +116,15 @@ export function ArchitectureMarketplace({
     onMarketUninstall(pkgId)
     setTimeout(() => setUninstallingId(null), 3000)
   }
+
+  const handleRemoveConnector = (connectorId: string) => {
+    if (!confirm('Remove this connector? Its tools will be unregistered and removed from any role that uses them.')) return
+    onRemoveConnector(connectorId)
+  }
+
+  const rolePickerConnector = rolePickerConnectorId
+    ? connectors.find(conn => conn.connector_id === rolePickerConnectorId) || null
+    : null
 
   return (
     <div className="mkt-container" data-testid="architecture-marketplace">
@@ -203,8 +225,8 @@ export function ArchitectureMarketplace({
         )}
       </CollapsibleSection>
 
-      {/* Channels & Connectors */}
-      <CollapsibleSection icon={ICON.channels} title="Channels & Connectors" count={channels.length}>
+      {/* Channels */}
+      <CollapsibleSection icon={ICON.channels} title="Channels" count={channels.length}>
         {channels.length > 0 ? (
           <div className="org-channels-grid">
             {channels.map(ch => (
@@ -223,6 +245,51 @@ export function ArchitectureMarketplace({
           </div>
         ) : (
           <div className="myorg-empty-hint">No channels configured.</div>
+        )}
+      </CollapsibleSection>
+
+      {/* Connectors */}
+      <CollapsibleSection icon={ICON.connector} title="Connectors" count={connectors.length}
+        extra={isCustomMode ? (
+          <button className="myorg-inline-btn" onClick={() => setShowAddConnector(true)}>
+            <img src={ICON.importPkg} alt="" className="myorg-inline-icon" /> Add Connector
+          </button>
+        ) : undefined}>
+        {connectors.length > 0 ? (
+          <div className="org-connectors-grid">
+            {connectors.map(conn => (
+              <div key={conn.connector_id} className="org-connector-card">
+                <div className="org-conn-header">
+                  <span className={`org-ch-dot${conn.status === 'connected' ? ' running' : ''}`} />
+                  <span className="org-conn-name">{conn.name}</span>
+                  <span className="org-conn-type">{conn.connector_type}</span>
+                </div>
+                <div className="org-conn-desc">{conn.description}</div>
+                {conn.actions.length > 0 && (
+                  <div className="org-conn-actions">
+                    {conn.actions.map(action => <span key={action} className="org-conn-action-tag">{action}</span>)}
+                  </div>
+                )}
+                {isCustomMode && (
+                  <div className="org-conn-buttons">
+                    <button
+                      className="mkt-btn mkt-btn-ghost mkt-btn-sm"
+                      disabled={conn.status !== 'connected'}
+                      title={conn.status !== 'connected' ? 'Connector must be connected to assign roles' : undefined}
+                      onClick={() => setRolePickerConnectorId(conn.connector_id)}
+                    >
+                      Manage roles
+                    </button>
+                    <button className="mkt-btn mkt-btn-ghost mkt-btn-sm" onClick={() => handleRemoveConnector(conn.connector_id)}>
+                      Remove
+                    </button>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="myorg-empty-hint">No connectors configured.</div>
         )}
       </CollapsibleSection>
 
@@ -260,6 +327,24 @@ export function ArchitectureMarketplace({
           isApplying={applyingPresetId === previewData.id}
           onApply={() => onApplyPreset(previewData.id, 'namespace')}
           onClose={onClearPreview}
+        />
+      )}
+
+      <AddConnectorModal
+        open={showAddConnector}
+        onClose={() => setShowAddConnector(false)}
+        onCreate={onAddConnector}
+      />
+
+      {rolePickerConnector && (
+        <ConnectorRolePicker
+          connector={rolePickerConnector}
+          roles={roles}
+          onClose={() => setRolePickerConnectorId(null)}
+          onSave={roleIds => {
+            onSetConnectorRoles(rolePickerConnector.connector_id, roleIds)
+            setRolePickerConnectorId(null)
+          }}
         />
       )}
     </div>

@@ -268,6 +268,20 @@
   font-family: 'JetBrains Mono', 'SF Mono', monospace;
 }
 
+.org-conn-buttons {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.org-conn-role-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  font-size: 13px;
+}
+
 /* ── Employee Detail Expansion ─────────────────────────────────────── */
 
 .org-emp-card { cursor: pointer; transition: background 0.15s; }

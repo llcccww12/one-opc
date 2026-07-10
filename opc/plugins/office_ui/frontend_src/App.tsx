@@ -2423,6 +2423,9 @@ export default function App() {
             onMarketExport={(data) => clientRef.current?.marketExport(data)}
             onMarketInstall={(path, strategy) => clientRef.current?.marketInstall(path, strategy)}
             onMarketUninstall={(pkgId) => clientRef.current?.marketUninstall(pkgId)}
+            onAddConnector={(payload) => clientRef.current?.addConnector(payload)}
+            onRemoveConnector={(connectorId) => clientRef.current?.removeConnector(connectorId)}
+            onSetConnectorRoles={(connectorId, roleIds) => clientRef.current?.setConnectorRoles(connectorId, roleIds)}
             marketPresets={marketPresets}
             marketPreviewData={marketPreviewData}
             onMarketBrowse={() => clientRef.current?.marketBrowse()}

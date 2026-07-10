@@ -14,6 +14,7 @@ import type {
 import { TeamView } from './TeamView'
 import { DelegationStrategyPanel } from './DelegationStrategyPanel'
 import { ArchitectureMarketplace } from './ArchitectureMarketplace'
+import type { AddConnectorPayload } from './AddConnectorModal'
 import { EmployeesMarketplace } from './EmployeesMarketplace'
 import { ConfigImportExportPanel } from './ConfigImportExportPanel'
 import { OrgCreateModal } from './OrgCreateModal'
@@ -75,6 +76,10 @@ interface OrgTabProps {
   onMarketExport?: (data: { package_id: string; name: string; description: string; version: string }) => void
   onMarketInstall?: (path: string, strategy: string) => void
   onMarketUninstall?: (packageId: string) => void
+  // Connectors (MCP servers)
+  onAddConnector?: (payload: AddConnectorPayload) => void
+  onRemoveConnector?: (connectorId: string) => void
+  onSetConnectorRoles?: (connectorId: string, roleIds: string[]) => void
   // Architecture gallery
   marketPresets?: ArchitecturePreset[]
   marketPreviewData?: ArchitecturePresetDetail | null
@@ -115,6 +120,7 @@ export function OrgTab({
   onRequestData, onRequestTalents, onRequestEmployeeDetail,
   onHireTalent, hiringTemplateId, onImportEmployee, onRequestReorgList, onReorgDecide,
   onMarketExport, onMarketInstall, onMarketUninstall,
+  onAddConnector, onRemoveConnector, onSetConnectorRoles,
   marketPresets, marketPreviewData, onMarketBrowse, onMarketPreview, onMarketApplyPreset, onMarketClearPreview,
   onAddRole, onBulkAddRoles, onUpdateRole, onDeleteRole, onUpdateOrgStrategy,
   onUpdateRuntimePolicy, onResetArchitecture,
@@ -183,6 +189,18 @@ export function OrgTab({
     ? activeSavedOrg ? 'Editable saved architecture' : 'Editable draft architecture'
     : 'Built-in read-only architecture'
   const runtimeStateLabel = runtimeView.frontier.status || runtimeView.projectRun?.status || runtimeView.projectRun?.lifecycle_status || 'ready'
+
+  // Switching the active org mid-apply would otherwise leave the previous
+  // org's preset stuck showing a disabled "Applying..." forever, since the
+  // org_version watch below never sees a match once the org has changed.
+  const prevActiveOrgIdRef = useRef(activeOrgId)
+  useEffect(() => {
+    if (prevActiveOrgIdRef.current !== activeOrgId) {
+      prevActiveOrgIdRef.current = activeOrgId
+      setApplyingPresetId(null)
+      versionAtApply.current = -1
+    }
+  }, [activeOrgId])
 
   // Roles that already have at least one non-placeholder employee.
   const filledRoleIds = useMemo(
@@ -395,11 +413,16 @@ export function OrgTab({
               onClearPreview={onMarketClearPreview ?? (() => {})}
               installedPackages={installedPackages}
               channels={data.channels}
+              connectors={data.connectors}
+              roles={data.roles}
               reorgProposals={reorgProposals}
               isCustomMode={!!isCustomMode}
               onReorgDecide={onReorgDecide}
               onMarketInstall={(p, s) => onMarketInstall?.(p, s)}
               onMarketUninstall={(id) => onMarketUninstall?.(id)}
+              onAddConnector={payload => onAddConnector?.(payload)}
+              onRemoveConnector={id => onRemoveConnector?.(id)}
+              onSetConnectorRoles={(id, roleIds) => onSetConnectorRoles?.(id, roleIds)}
             />
             {isCustomMode && (
               <ConfigImportExportPanel

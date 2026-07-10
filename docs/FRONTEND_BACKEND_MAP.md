@@ -251,7 +251,20 @@
 
 ---
 
-## 十六、前端未使用的 wsClient 方法
+## 十六、连接器（Connectors / MCP）
+
+"连接器"即已配置的 MCP server（`opc.mcp_client.MCPManager`）。新增后立即尝试连接并注册其工具到全局 `ToolRegistry`；某个角色要实际调用这些工具，还需要通过"分配角色"把工具名写入该角色的 `tools` 白名单（`set_connector_roles`）。
+
+| 功能 | 前端组件 | WS 请求类型 | 后端 Handler | 后端 Service | WS 响应类型 |
+|------|----------|-------------|--------------|--------------|-------------|
+| 获取连接器列表 | ArchitectureMarketplace | （随 `org_info` 返回） | `_handle_org_info` | `connectors.list_connectors` | `org_info` |
+| 新增连接器 | AddConnectorModal | `add_connector` | `_handle_add_connector` | `connectors.add_connector` | `ack`, `org_info` |
+| 移除连接器 | ArchitectureMarketplace | `remove_connector` | `_handle_remove_connector` | `connectors.remove_connector` | `ack`, `org_info` |
+| 分配角色 | ConnectorRolePicker | `set_connector_roles` | `_handle_set_connector_roles` | `connectors.set_connector_roles` | `ack`, `org_info` |
+
+---
+
+## 十七、前端未使用的 wsClient 方法
 
 以下方法在 wsClient.ts 中定义，但当前没有任何组件调用：
 
