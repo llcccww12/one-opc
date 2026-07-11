@@ -7,6 +7,7 @@ CREATEs, never migrates existing installs (there are none yet).
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import secrets
 import sqlite3
@@ -25,6 +26,11 @@ class UserStore:
 
     def __init__(self, db: aiosqlite.Connection) -> None:
         self._db = db
+        # Serializes register() so that no two calls can ever be mid-transaction
+        # on the shared connection at once: SQLite transactions are scoped to the
+        # connection, not the caller, so an interleaved rollback() from one call
+        # could otherwise discard another call's uncommitted writes.
+        self._register_lock = asyncio.Lock()
 
     async def initialize(self) -> None:
         await self._db.execute(
@@ -68,46 +74,57 @@ class UserStore:
 
     async def register(self, username: str, invite_code: str) -> tuple[str | None, str | None]:
         """Create a user account. Returns (user_id, None) or (None, error_code)."""
-        cursor = await self._db.execute("SELECT 1 FROM users WHERE username = ?", (username,))
-        if await cursor.fetchone() is not None:
-            return None, "username_taken"
+        # The whole critical section is serialized on this instance's lock because
+        # UserStore shares ONE connection across all callers, and SQLite transactions
+        # are scoped to the connection rather than the caller. Without this lock, an
+        # interleaved rollback() below (triggered by THIS call's own IntegrityError)
+        # could discard another concurrent register() call's uncommitted writes on
+        # the same connection. Serializing here means only one register() call can
+        # ever be mid-transaction at a time, so rollback() can only ever undo this
+        # call's own uncommitted invite-code claim.
+        async with self._register_lock:
+            cursor = await self._db.execute("SELECT 1 FROM users WHERE username = ?", (username,))
+            if await cursor.fetchone() is not None:
+                return None, "username_taken"
 
-        cursor = await self._db.execute(
-            "SELECT status FROM invite_codes WHERE code = ?", (invite_code,)
-        )
-        row = await cursor.fetchone()
-        if row is None:
-            return None, "invite_code_invalid"
-
-        user_id = secrets.token_hex(16)
-
-        # Atomically claim the invite code: the WHERE status='unused' guard means only
-        # one concurrent register() call can win this UPDATE, closing the TOCTOU race
-        # between the SELECT above and this claim.
-        cursor = await self._db.execute(
-            "UPDATE invite_codes SET status = 'used', used_by_user_id = ? "
-            "WHERE code = ? AND status = 'unused'",
-            (user_id, invite_code),
-        )
-        if cursor.rowcount == 0:
-            return None, "invite_code_used"
-
-        salt = secrets.token_hex(16)
-        password_hash = _hash_invite_code(invite_code, salt)
-        try:
-            await self._db.execute(
-                "INSERT INTO users (user_id, username, password_salt, password_hash, created_at) "
-                "VALUES (?, ?, ?, ?, ?)",
-                (user_id, username, salt, password_hash, time.time()),
+            cursor = await self._db.execute(
+                "SELECT status FROM invite_codes WHERE code = ?", (invite_code,)
             )
-        except sqlite3.IntegrityError:
-            # Another request registered this username between our check above and
-            # this INSERT. Roll back so the invite code claim above is undone too.
-            await self._db.rollback()
-            return None, "username_taken"
+            row = await cursor.fetchone()
+            if row is None:
+                return None, "invite_code_invalid"
 
-        await self._db.commit()
-        return user_id, None
+            user_id = secrets.token_hex(16)
+
+            # Atomically claim the invite code: the WHERE status='unused' guard means only
+            # one concurrent register() call can win this UPDATE, closing the TOCTOU race
+            # between the SELECT above and this claim.
+            cursor = await self._db.execute(
+                "UPDATE invite_codes SET status = 'used', used_by_user_id = ? "
+                "WHERE code = ? AND status = 'unused'",
+                (user_id, invite_code),
+            )
+            if cursor.rowcount == 0:
+                return None, "invite_code_used"
+
+            salt = secrets.token_hex(16)
+            password_hash = _hash_invite_code(invite_code, salt)
+            try:
+                await self._db.execute(
+                    "INSERT INTO users (user_id, username, password_salt, password_hash, created_at) "
+                    "VALUES (?, ?, ?, ?, ?)",
+                    (user_id, username, salt, password_hash, time.time()),
+                )
+            except sqlite3.IntegrityError:
+                # Another request registered this username between our check above and
+                # this INSERT. Roll back so the invite code claim above is undone too.
+                # Safe because the register_lock guarantees no other register() call
+                # can be mid-transaction on this connection right now.
+                await self._db.rollback()
+                return None, "username_taken"
+
+            await self._db.commit()
+            return user_id, None
 
     async def authenticate(self, username: str, invite_code: str) -> str | None:
         """Verify username + invite_code. Returns user_id on success, None on failure."""
