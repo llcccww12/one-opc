@@ -42,6 +42,15 @@
 
 ---
 
+## 十八、全局模型 / API Key 设置
+
+| 功能 | 前端组件 | WS 请求类型 | 后端 Handler | 后端 Service | WS 响应类型 |
+|------|----------|-------------|--------------|--------------|-------------|
+| 读取模型配置 | SettingsPanel | `get_llm_config` | `_handle_get_llm_config` | `settings.get_llm_config` | `ack` |
+| 保存模型配置 | SettingsPanel | `update_llm_config` | `_handle_update_llm_config` | `settings.update_llm_config` | `ack` |
+
+---
+
 ## 二、会话管理（Session）
 
 | 功能 | 前端组件 | WS 请求类型 | 后端 Handler | 后端 Service | WS 响应类型 |

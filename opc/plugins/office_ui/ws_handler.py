@@ -9103,6 +9103,20 @@ class WSHandler:
         except ServiceError as exc:
             await self._send_service_error(ws, exc, action="delete_project")
 
+    async def _handle_get_llm_config(self, ws: Any, data: dict) -> None:
+        try:
+            result = await self._ensure_office_services().settings.get_llm_config()
+            await self._send_ack(ws, ok=True, **result.payload)
+        except ServiceError as exc:
+            await self._send_service_error(ws, exc, action="get_llm_config")
+
+    async def _handle_update_llm_config(self, ws: Any, data: dict) -> None:
+        try:
+            result = await self._ensure_office_services().settings.update_llm_config(data.get("patch", {}) or {})
+            await self._send_ack(ws, ok=True, **result.payload)
+        except ServiceError as exc:
+            await self._send_service_error(ws, exc, action="update_llm_config")
+
     async def _handle_switch_project(self, ws: Any, data: dict) -> None:
         """Switch the active project view without rebinding in-flight runtimes."""
         new_id = data.get("project_id", "").strip()
@@ -9939,6 +9953,8 @@ class WSHandler:
         "secretary_send":      _handle_secretary_send,
         # Project management
         "list_projects":       _handle_list_projects,
+        "get_llm_config":      _handle_get_llm_config,
+        "update_llm_config":   _handle_update_llm_config,
         "create_project":      _handle_create_project,
         "delete_project":      _handle_delete_project,
         "switch_project":      _handle_switch_project,
