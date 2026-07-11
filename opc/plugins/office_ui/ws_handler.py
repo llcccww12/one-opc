@@ -395,6 +395,41 @@ def _saved_org_path(name: str, *, strict: bool = True) -> Path:
     return _saved_orgs_dir() / org_config_filename(org_id)
 
 
+# Every WS message type whose payload carries an explicit project_id/projectId
+# and must therefore be checked against the caller's ownership before the
+# handler runs. Mirrors PROJECT_SCOPED_MESSAGE_TYPES in frontend_src/lib/wsClient.ts,
+# plus switch_project/delete_project which also carry an explicit project_id.
+_OWNERSHIP_CHECKED_MESSAGE_TYPES = frozenset({
+    "collab_sync",
+    "kanban_create_board",
+    "kanban_create_task",
+    "kanban_update_task",
+    "kanban_move_task",
+    "kanban_delete_board",
+    "kanban_delete_task",
+    "kanban_assign",
+    "kanban_status",
+    "kanban_switch_view",
+    "run_task",
+    "create_session",
+    "session_send",
+    "session_update_config",
+    "session_delete",
+    "session_detail",
+    "session_stop",
+    "session_resume",
+    "session_complete",
+    "session_update_title",
+    "secretary_send",
+    "project_index",
+    "recovery_action",
+    "comms_state",
+    "comms_read_message",
+    "switch_project",
+    "delete_project",
+})
+
+
 class WSHandler:
     """Routes all WebSocket messages between frontend and OPC."""
 
@@ -1136,6 +1171,20 @@ class WSHandler:
 
             # Send initial snapshot
             initial_project_id = self._active_engine_project_id()
+            connecting_user_id = self._client_user_ids.get(ws)
+            try:
+                await self._ensure_office_services().project.assert_access(initial_project_id, connecting_user_id)
+            except ServiceError:
+                owned = await self._ensure_office_services().project.list(owner_user_id=connecting_user_id)
+                owned_ids = [entry["id"] for entry in owned.payload.get("projects", [])]
+                if owned_ids:
+                    initial_project_id = owned_ids[0]
+                    await self.services.project.switch(initial_project_id, include_snapshot=False)
+                # else: this account owns no project yet. It will keep seeing the
+                # currently-active project's initial snapshot until it creates its
+                # own — a known residual gap for brand-new multi-account installs,
+                # not covered by this task (create_project is unaffected: it always
+                # records the new project under the creator, per Task 3).
             self._client_project_ids[ws] = initial_project_id
             snapshot = await build_snapshot(
                 self.engine, self.agent_store, self.chat_store, self.event_adapter
@@ -3349,6 +3398,12 @@ class WSHandler:
             if current_task is not None:
                 self._active_message_tasks.add(current_task)
             try:
+                if msg_type in _OWNERSHIP_CHECKED_MESSAGE_TYPES:
+                    project_id = str(data.get("project_id") or data.get("projectId") or "").strip()
+                    if project_id:
+                        await self._ensure_office_services().project.assert_access(
+                            project_id, self._client_user_ids.get(ws)
+                        )
                 await handler(self, ws, data)
             except Exception as e:
                 if self._is_ws_disconnect_error(e) or self._is_expected_shutdown_error(e):
@@ -3366,6 +3421,11 @@ class WSHandler:
                     )
                     try:
                         await self._send_ack(ws, ok=False, error=str(e), action=msg_type)
+                    except Exception:
+                        pass
+                elif isinstance(e, ServiceError):
+                    try:
+                        await self._send_service_error(ws, e, action=msg_type)
                     except Exception:
                         pass
                 else:
@@ -9013,7 +9073,10 @@ class WSHandler:
 
     async def _handle_list_projects(self, ws: Any, data: dict) -> None:
         """List available projects by scanning the projects directory."""
-        result = await self.services.project.list(active_project_id=self._client_active_project_id(ws))
+        result = await self.services.project.list(
+            active_project_id=self._client_active_project_id(ws),
+            owner_user_id=self._client_user_ids.get(ws),
+        )
         await self._send_ack(ws, ok=True, **result.payload)
 
     async def _handle_create_project(self, ws: Any, data: dict) -> None:
@@ -9022,6 +9085,7 @@ class WSHandler:
             result = await self.services.project.create(
                 data.get("project_id", ""),
                 active_project_id=self._client_active_project_id(ws),
+                owner_user_id=self._client_user_ids.get(ws),
             )
             await self._send_ack(ws, ok=True, **result.payload)
         except ServiceError as exc:
