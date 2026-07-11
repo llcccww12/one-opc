@@ -4,6 +4,8 @@ import remarkGfm from 'remark-gfm'
 import { VisualSocketClient } from './lib/wsClient'
 import { getStoredToken, clearSession } from './lib/auth'
 import { IdentityMenu } from './auth/IdentityMenu'
+import { NodesPanel } from './nodes/NodesPanel'
+import type { NodeCluster } from './nodes/NodesPanel'
 import { PhaserGame } from './game/PhaserGame'
 import { GameBridge } from './game/GameBridge'
 import { CollisionEditor } from './components/CollisionEditor'
@@ -70,7 +72,7 @@ const SESSION_DETAIL_REFRESH_LOW_VALUE_RUNTIME_EVENTS = new Set([
 ])
 
 type ThemeName = 'modern' | 'midnight' | 'neon' | 'paper' | 'retro' | 'terminal' | 'cozy' | 'openopc'
-type AppPage = 'office' | 'workspace' | 'org' | 'mapEditor'
+type AppPage = 'office' | 'workspace' | 'org' | 'mapEditor' | 'nodes'
 type AppExecMode = 'task' | 'company' | 'org'
 
 function defaultWsUrl(): string {
@@ -513,6 +515,7 @@ export default function App() {
   const [orgToast, setOrgToast] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null)
   const [llmConfig, setLlmConfig] = useState<{ default_model: string; api_base: string; api_key_set: boolean } | null>(null)
   const [llmConfigSaveMessage, setLlmConfigSaveMessage] = useState('')
+  const [nodesData, setNodesData] = useState<{ available: boolean; clusters: NodeCluster[] } | null>(null)
   const requestLlmConfig = useCallback(() => { clientRef.current?.getLlmConfig() }, [])
   const saveLlmConfig = useCallback((patch: { default_model?: string; api_base?: string; api_key?: string }) => { clientRef.current?.updateLlmConfig(patch) }, [])
   const timersRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set())
@@ -1654,6 +1657,9 @@ export default function App() {
           setLlmConfigSaveMessage(payload.error || 'Save failed')
         }
       },
+      onListNodes: (payload) => {
+        setNodesData(payload)
+      },
       onOrgInfo: (payload) => {
         const normalized = normalizeOrgInfoPayload(payload)
         setOrgInfoData(normalized)
@@ -2273,6 +2279,10 @@ export default function App() {
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="2" width="6" height="6" rx="1"/><rect x="3" y="16" width="6" height="6" rx="1"/><rect x="15" y="16" width="6" height="6" rx="1"/><path d="M12 8v4M6 16v-2h12v2"/></svg>
             <span className="rail-btn-label">Org</span>
           </button>
+          <button className={`rail-btn${activePage === 'nodes' ? ' active' : ''}`} onClick={() => setActivePage('nodes')} title="Nodes">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+            <span className="rail-btn-label">Nodes</span>
+          </button>
         </div>
         <div className="rail-bottom">
           <IdentityMenu
@@ -2501,6 +2511,12 @@ export default function App() {
       {activePage === 'mapEditor' && (
         <div className="editor-page">
           <CollisionEditor bridge={bridgeRef.current} />
+        </div>
+      )}
+
+      {activePage === 'nodes' && (
+        <div className="nodes-page-wrap">
+          <NodesPanel nodes={nodesData} onRefresh={() => clientRef.current?.listNodes()} />
         </div>
       )}
 

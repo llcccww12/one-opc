@@ -1,0 +1,47 @@
+.nodes-page {
+  padding: 24px;
+  overflow-y: auto;
+}
+
+.nodes-empty {
+  color: var(--text-secondary);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 16px;
+}
+
+.nodes-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 12px;
+}
+
+.nodes-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 14px;
+}
+
+.nodes-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.nodes-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.nodes-status-dot[data-status="UP"] { background: var(--green); }
+.nodes-status-dot[data-status="INIT"] { background: var(--yellow); }
+.nodes-status-dot[data-status="STOPPED"] { background: var(--text-dim); }
+
+.nodes-card-detail {
+  font-size: 12px;
+  color: var(--text-secondary);
+}

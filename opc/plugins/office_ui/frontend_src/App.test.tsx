@@ -140,3 +140,6 @@ assert.match(
 )
 
 console.log('App.test.tsx: OK (org handlers + snapshot boundary + runtime displayTool/draft contract)')
+
+assert.match(src, /'nodes'/, 'AppPage union must include the nodes page')
+assert.match(src, /activePage === 'nodes'/, 'App must render NodesPanel when activePage is nodes')

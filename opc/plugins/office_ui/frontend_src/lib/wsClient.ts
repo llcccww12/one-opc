@@ -61,6 +61,7 @@ interface SocketHandlers {
   onOrgSavedDelete?: (payload: { ok: boolean; name: string; error?: string }) => void
   onGetLlmConfig?: (payload: { default_model: string; api_base: string; api_key_set: boolean }) => void
   onUpdateLlmConfig?: (payload: { ok: boolean; default_model?: string; api_base?: string; api_key_set?: boolean; error?: string }) => void
+  onListNodes?: (payload: { available: boolean; clusters: Array<{ name: string; status: string; region: string; instance_type: string; price_per_hour: number | null; runtime_seconds: number | null }> }) => void
   onCommsState?: (payload: CommsStatePayload) => void
   onCommsMessage?: (payload: CommsMessagePayload) => void
 }
@@ -638,6 +639,10 @@ export class VisualSocketClient {
     this.send({ type: 'update_llm_config', patch })
   }
 
+  listNodes(): void {
+    this.send({ type: 'list_nodes' })
+  }
+
   recoveryAction(projectId: string, action: 'resume' | 'cancel' | 'scan', parentTaskId?: string): void {
     const pid = this.requireProjectId(projectId, 'recovery_action')
     this.send({ type: 'recovery_action', project_id: pid, action, parent_task_id: parentTaskId })
@@ -842,6 +847,9 @@ export class VisualSocketClient {
         break
       case 'update_llm_config':
         this.handlers.onUpdateLlmConfig?.(parsed.payload as { ok: boolean; default_model?: string; api_base?: string; api_key_set?: boolean; error?: string })
+        break
+      case 'list_nodes':
+        this.handlers.onListNodes?.(parsed.payload as { available: boolean; clusters: any[] })
         break
       case 'pong':
         this.handlePong()
