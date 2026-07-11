@@ -1744,6 +1744,44 @@ def project_delete(
     asyncio.run(_run_service_command(project, lambda svc: svc.project.delete(project_id), json_output=json_output))
 
 
+user_app = typer.Typer(help="Manage OpenOPC user accounts (invite codes)")
+app.add_typer(user_app, name="user")
+
+
+@user_app.command("create-invite")
+def user_create_invite(
+    code: Optional[str] = typer.Argument(None, help="Invite code to create; a random one is generated if omitted"),
+    json_output: bool = typer.Option(False, "--json", help="Print JSON"),
+):
+    """Create an invite code that a new user can register with."""
+    import secrets as _secrets
+
+    import aiosqlite
+
+    from opc.plugins.office_ui.user_store import UserStore
+
+    invite_code = code or _secrets.token_hex(4).upper()
+
+    async def _create() -> None:
+        opc_home = get_opc_home()
+        opc_home.mkdir(parents=True, exist_ok=True)
+        db = await aiosqlite.connect(str(opc_home / "ui_state.db"))
+        try:
+            await db.execute("PRAGMA busy_timeout=30000")
+            store = UserStore(db)
+            await store.initialize()
+            await store.create_invite_code(invite_code)
+        finally:
+            await db.close()
+
+    asyncio.run(_create())
+    payload = {"ok": True, "invite_code": invite_code}
+    if json_output:
+        console.print(json.dumps(payload, ensure_ascii=False, indent=2))
+    else:
+        console.print(f"Invite code created: [success]{invite_code}[/success]")
+
+
 session_app = typer.Typer(help="Manage OPC sessions")
 app.add_typer(session_app, name="session")
 
