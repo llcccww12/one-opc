@@ -3077,6 +3077,52 @@ class CliTalentCommandTests(unittest.TestCase):
             self.assertFalse((opc_home / "prompts" / "talent" / "strategy-phase-0-discovery.md").exists())
 
 
+class CliUserCommandTests(unittest.TestCase):
+    def test_create_invite_seeds_ui_state_db(self) -> None:
+        runner = CliRunner()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            opc_home = Path(tmpdir) / ".opc"
+            with patch("opc.cli.app.get_opc_home", return_value=opc_home):
+                result = runner.invoke(app, ["user", "create-invite", "TESTCODE1"])
+
+            self.assertEqual(result.exit_code, 0, result.output)
+            self.assertIn("TESTCODE1", result.output)
+
+            conn = sqlite3.connect(str(opc_home / "ui_state.db"))
+            try:
+                row = conn.execute(
+                    "SELECT status FROM invite_codes WHERE code = ?", ("TESTCODE1",)
+                ).fetchone()
+            finally:
+                conn.close()
+            self.assertIsNotNone(row)
+            self.assertEqual(row[0], "unused")
+
+    def test_create_invite_without_code_generates_one(self) -> None:
+        runner = CliRunner()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            opc_home = Path(tmpdir) / ".opc"
+            with patch("opc.cli.app.get_opc_home", return_value=opc_home):
+                result = runner.invoke(app, ["user", "create-invite"])
+
+            self.assertEqual(result.exit_code, 0, result.output)
+            self.assertIn("Invite code created", result.output)
+
+    def test_create_invite_with_duplicate_code_reports_already_exists(self) -> None:
+        runner = CliRunner()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            opc_home = Path(tmpdir) / ".opc"
+            with patch("opc.cli.app.get_opc_home", return_value=opc_home):
+                first = runner.invoke(app, ["user", "create-invite", "DUPCODE1"])
+                self.assertEqual(first.exit_code, 0, first.output)
+
+                second = runner.invoke(app, ["user", "create-invite", "DUPCODE1"])
+
+            self.assertEqual(second.exit_code, 0, second.output)
+            self.assertIn("already exists", second.output)
+            self.assertIn("DUPCODE1", second.output)
+
+
 class CliBoardCommandTests(unittest.TestCase):
     def setUp(self) -> None:
         self.runner = CliRunner()

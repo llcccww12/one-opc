@@ -1,6 +1,6 @@
 import React from 'react'
 import { createRoot } from 'react-dom/client'
-import App from './App'
+import Root from './auth/Root'
 import './index.css'
 
 class ErrorBoundary extends React.Component<
@@ -66,7 +66,7 @@ if (!root) {
 try {
   createRoot(root).render(
     <ErrorBoundary>
-      <App />
+      <Root />
     </ErrorBoundary>
   )
 } catch (err) {
