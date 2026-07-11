@@ -1,4 +1,19 @@
 .auth-screen {
+  /* LoginScreen renders outside .app-shell (pre-login), so these theme
+     variables — normally supplied by .app-shell in index.css — are
+     declared locally here to keep the same default-theme appearance. */
+  --bg: linear-gradient(135deg, #fafbfc 0%, #f1f5f9 100%);
+  --bg-elevated: #ffffff;
+  --surface: rgba(255, 255, 255, 0.95);
+  --text: #0f172a;
+  --text-secondary: #64748b;
+  --border: rgba(0, 0, 0, 0.06);
+  --accent: #6366f1;
+  --red: #ef4444;
+  --radius-sm: 8px;
+  --radius-lg: 16px;
+  --shadow-lg: 0 4px 16px rgba(15, 23, 42, 0.06), 0 16px 48px rgba(15, 23, 42, 0.10);
+
   min-height: 100vh;
   display: flex;
   align-items: center;
@@ -57,6 +72,6 @@
 }
 
 .auth-error {
-  color: #ef4444;
+  color: var(--red);
   font-size: 13px;
 }

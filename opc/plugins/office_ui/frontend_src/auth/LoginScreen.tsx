@@ -33,7 +33,7 @@ export function LoginScreen({ onAuthenticated }: LoginScreenProps) {
   }
 
   return (
-    <div className="app-shell auth-screen">
+    <div className="auth-screen">
       <form className="auth-form" onSubmit={handleSubmit}>
         <h1>{mode === 'login' ? '登录' : '注册'}</h1>
         <input
