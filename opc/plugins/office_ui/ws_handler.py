@@ -475,6 +475,7 @@ class WSHandler:
             agent_store=agent_store,
             chat_store=chat_store,
             event_adapter=event_adapter,
+            user_store=self._user_store,
             mode_state=ModeState(
                 exec_mode=self._exec_mode,
                 company_profile=self._company_profile,
@@ -524,6 +525,7 @@ class WSHandler:
             agent_store=getattr(self, "agent_store", None),
             chat_store=getattr(self, "chat_store", None),
             event_adapter=getattr(self, "event_adapter", None),
+            user_store=getattr(self, "_user_store", None),
             mode_state=ModeState(
                 exec_mode=getattr(self, "_exec_mode", "task"),
                 company_profile=getattr(self, "_company_profile", "corporate"),

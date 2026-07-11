@@ -46,12 +46,14 @@ class OfficeServiceContext:
         chat_store: Any,
         event_adapter: Any,
         mode_state: ModeState | None = None,
+        user_store: Any = None,
     ) -> None:
         self.root_engine = engine
         self.active_engine = engine
         self.agent_store = agent_store
         self.chat_store = chat_store
         self.event_adapter = event_adapter
+        self.user_store = user_store
         self.mode_state = mode_state or ModeState()
         self.active_project_id = self.normalize_project_id(getattr(engine, "project_id", None))
         self.project_switch_lock = asyncio.Lock()
