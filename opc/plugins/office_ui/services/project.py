@@ -19,6 +19,29 @@ from .models import ServiceEvent, ServiceError, ServiceResult
 class ProjectService:
     def __init__(self, context: OfficeServiceContext) -> None:
         self.context = context
+        self._ownership_healed = False
+
+    async def _ensure_ownership_self_heal(self) -> None:
+        """One-time, idempotent backfill for projects that predate the account system.
+
+        Only assigns ownership when exactly one account exists — with 2+ accounts,
+        an unclaimed historical project cannot be safely attributed to any one of
+        them, so it is left unowned (invisible to every account) per spec.
+        """
+        if self._ownership_healed:
+            return
+        self._ownership_healed = True
+        user_store = self.context.user_store
+        if user_store is None:
+            return
+        sole_user_id = await user_store.get_sole_user_id()
+        if sole_user_id is None:
+            return
+        owners = await user_store.list_project_owners()
+        for entry in self.context.list_project_entries():
+            project_id = entry["id"]
+            if project_id not in owners:
+                await user_store.record_project_owner(project_id, sole_user_id)
 
     @staticmethod
     def _quote_sql_identifier(name: str) -> str:
@@ -79,14 +102,20 @@ class ProjectService:
                 except Exception:
                     logger.opt(exception=True).debug(f"Failed to close project store for {project_id}")
 
-    async def list(self, *, active_project_id: str | None = None) -> ServiceResult:
+    async def list(self, *, active_project_id: str | None = None, owner_user_id: str | None = None) -> ServiceResult:
+        await self._ensure_ownership_self_heal()
         active = active_project_id or self.context.active_engine_project_id()
+        entries = self.context.list_project_entries()
+        user_store = self.context.user_store
+        if owner_user_id and owner_user_id != "anonymous" and user_store is not None:
+            owners = await user_store.list_project_owners()
+            entries = [entry for entry in entries if owners.get(entry["id"]) == owner_user_id]
         return ServiceResult({
-            "projects": self.context.list_project_entries(),
+            "projects": entries,
             "active_project_id": self.context.normalize_project_id(active),
         })
 
-    async def create(self, project_id: str, *, active_project_id: str | None = None) -> ServiceResult:
+    async def create(self, project_id: str, *, active_project_id: str | None = None, owner_user_id: str | None = None) -> ServiceResult:
         project_id = str(project_id or "").strip()
         if not project_id:
             raise ServiceError("missing_project_id", "Missing project_id")
@@ -103,6 +132,8 @@ class ProjectService:
         projects_dir.mkdir(parents=True, exist_ok=False)
         workplace.mkdir(parents=True, exist_ok=False)
         memory_store.ensure_memory_file(project_id, f"# Project Memory ({project_id})")
+        if owner_user_id and owner_user_id != "anonymous" and self.context.user_store is not None:
+            await self.context.user_store.record_project_owner(project_id, owner_user_id)
         active = active_project_id or self.context.active_engine_project_id()
         return ServiceResult({
             "action": "create_project",
@@ -110,6 +141,28 @@ class ProjectService:
             "projects": self.context.list_project_entries(),
             "active_project_id": self.context.normalize_project_id(active),
         })
+
+    async def assert_access(self, project_id: str, owner_user_id: str | None) -> None:
+        """Raise ServiceError if owner_user_id may not read/write project_id.
+
+        Anonymous connections (no UserStore configured, or user_id is None/"anonymous")
+        are always allowed through unchanged — this preserves single-machine,
+        no-account-system behavior exactly as it was before this feature.
+        """
+        if not owner_user_id or owner_user_id == "anonymous":
+            return
+        user_store = self.context.user_store
+        if user_store is None:
+            return
+        await self._ensure_ownership_self_heal()
+        normalized = self.context.normalize_project_id(project_id)
+        owner = await user_store.get_project_owner(normalized)
+        if owner != owner_user_id:
+            raise ServiceError(
+                "project_access_denied",
+                f"You do not have access to project '{normalized}'",
+                {"project_id": normalized},
+            )
 
     async def rename(self, old_project_id: str, new_project_id: str) -> ServiceResult:
         old_id = str(old_project_id or "").strip()
