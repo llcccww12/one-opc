@@ -17,6 +17,7 @@ OpenOPC 现状假设"单机单用户"。toC 要开放给不懂技术的用户用
    │  (现有 WS，走 Office UI，不变)
    ▼
 中心控制面（现有 OPCEngine + Office UI，本设计扩展）
+   ├─ 账号库（新增：注册/登录，产出 user_id）
    ├─ Tenant VM 生命周期管理（新增：包一层 SkyPilot 调用）
    ├─ Worker 连接注册表（新增：谁的 VM 现在连着，token 是谁的）
    ├─ 用户凭证库（新增：加密存储每个用户自己填的网关 key）
@@ -41,8 +42,19 @@ SkyPilot 拉起的用户 VM（每用户一台，stop/start 复用磁盘，不是
 | 自建守护进程 + 入站 API | VM 里跑 HTTP/gRPC 服务，控制面主动调用 | 协议贴合现有工具语义，但每台用户 VM 都要开入站端口——50 个用户等于 50 个新攻击面 |
 | **自建守护进程 + 出站连接（采用）** | worker 启动后主动连回控制面 | 复用"agent 本来就需要出网"这条已有的网络策略，不新增入站暴露面；工程量与入站 API 方案相当，安全姿态更好 |
 
+## 用户注册与登录（MVP）
+
+现有代码调研确认：OpenOPC 目前完全没有人类用户账号/登录层——`chat_store.py`/`agent_store.py` 的表结构、`opc/core/config.py` 的路径解析都是"单机单隐式用户"设计，没有 `user_id` 概念，前端也没有任何登录路由。这是 toC 的前置缺口：本文档里"VM 归属""凭证库""活跃计时"等所有"按用户"的逻辑都需要一个稳定的 `user_id` 作为锚点，必须先有账号体系才能落地。
+
+v1 采用最简机制，明确"先跑起来，后续再优化"：
+
+- **注册**：填用户名 + 邀请码，邀请码校验通过即建号（新表 `users`：id、username、invite_code、created_at）。
+- **登录**：填用户名 + 邀请码（邀请码本身就是登录凭证，不单独设密码），校验通过后发一个会话 token（cookie/localStorage），后续浏览器 WS 连接带上这个 token 做身份识别。
+- **明确留到后续优化**：邀请码一次性/多次使用策略、密码找回、邮箱验证、OAuth/SSO、邀请码批量生成的管理界面。这些不阻塞 v1。
+
 ## 组件
 
+- **账号库（新增）**：`users` 表 + 注册/登录路由，产出的 `user_id` 是本设计里其余所有新增组件的关联键。
 - **`opc worker`（新增运行模式）**：跑在用户 VM 里，复用 `layer3_agent/adapters/claude_code.py` 和 `layer4_tools`（本轮范围：`shell_exec`、`file_ops`、`web_search`；不含 browser/Playwright）。启动后主动建立到控制面的出站 WS 连接并完成鉴权。
 - **Tenant VM 生命周期管理（新增）**：包装 SkyPilot 调用（launch/stop/start），维护"用户 → 集群名/状态"的映射，自己记录用户最近活跃时间用于决定何时挂起（见下）。
 - **Worker 连接注册表（新增）**：维护"哪个用户的 worker 现在连着、用的是哪个鉴权 token"，供调度逻辑判断任务能不能立即派发还是要先唤醒/拉起 VM。
@@ -108,6 +120,7 @@ worker 复用现有 adapter 代码 spawn claude CLI 子进程（带 --resume/--c
 ## v1 范围边界
 
 **这轮要做：**
+- 用户注册/登录（邀请码 + 用户名，MVP 级，产出 user_id 作为其余组件的锚点）
 - SkyPilot 每用户一台 VM，launch/stop/start 生命周期，磁盘持久化
 - 新增 `opc worker` 运行模式：复用 claude_code adapter（仅这一个）+ `shell_exec`/`file_ops`/`web_search`（不含 browser/Playwright）
 - worker → 控制面出站 WS 连接，无入站端口；每台 VM 一次性 token 鉴权
@@ -117,6 +130,7 @@ worker 复用现有 adapter 代码 spawn claude CLI 子进程（带 --resume/--c
 - 输出流式管道复用现状，只是把数据源从"本机子进程"换成"worker 转发"
 
 **这轮明确不做，记录留给后续：**
+- 密码找回 / 邮箱验证 / OAuth/SSO / 邀请码批量管理界面——账号体系先跑最简版本，这些后续再补
 - toB 私有化部署包——独立轨道，后续单独展开
 - 计费/用量配额系统——独立轨道；这次靠"每人自己网关 key 自带配额"结构性绕开，前提依赖网关侧能力（见上）
 - codex/cursor/opencode 在 VM 里跑——继续放着
