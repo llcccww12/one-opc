@@ -46,8 +46,8 @@
 
 | 功能 | 前端组件 | WS 请求类型 | 后端 Handler | 后端 Service | WS 响应类型 |
 |------|----------|-------------|--------------|--------------|-------------|
-| 读取模型配置 | SettingsPanel | `get_llm_config` | `_handle_get_llm_config` | `settings.get_llm_config` | `ack` |
-| 保存模型配置 | SettingsPanel | `update_llm_config` | `_handle_update_llm_config` | `settings.update_llm_config` | `ack` |
+| 读取模型配置 | SettingsPanel | `get_llm_config` | `_handle_get_llm_config` | `settings.get_llm_config` | `get_llm_config` |
+| 保存模型配置 | SettingsPanel | `update_llm_config` | `_handle_update_llm_config` | `settings.update_llm_config` | `update_llm_config` |
 
 ---
 
@@ -55,7 +55,7 @@
 
 | 功能 | 前端组件 | WS 请求类型 | 后端 Handler | 后端 Service | WS 响应类型 |
 |------|----------|-------------|--------------|--------------|-------------|
-| 刷新集群状态 | NodesPanel | `list_nodes` | `_handle_list_nodes` | `nodes.list_nodes` | `ack` |
+| 刷新集群状态 | NodesPanel | `list_nodes` | `_handle_list_nodes` | `nodes.list_nodes` | `list_nodes` |
 
 ---
 

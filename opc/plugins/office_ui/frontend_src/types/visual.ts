@@ -121,9 +121,9 @@ export type SocketEnvelope =
   | { type: 'comms_state'; payload: Record<string, unknown> }
   | { type: 'comms_message'; payload: Record<string, unknown> }
   | { type: 'comms_state_dirty'; payload: { project_id: string; [key: string]: unknown } }
-  | { type: 'get_llm_config'; payload: { default_model: string; api_base: string; api_key_set: boolean } }
+  | { type: 'get_llm_config'; payload: { ok: boolean; default_model: string; api_base: string; api_key_set: boolean } }
   | { type: 'update_llm_config'; payload: { ok: boolean; default_model?: string; api_base?: string; api_key_set?: boolean; error?: string } }
-  | { type: 'list_nodes'; payload: { available: boolean; clusters: Array<{ name: string; status: string; region: string; instance_type: string; price_per_hour: number | null; runtime_seconds: number | null }> } }
+  | { type: 'list_nodes'; payload: { ok: boolean; available: boolean; clusters: Array<{ name: string; status: string; region: string; instance_type: string; price_per_hour: number | null; runtime_seconds: number | null }> } }
 
 export type SocketStatus = 'connecting' | 'connected' | 'disconnected' | 'error'
 

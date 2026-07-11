@@ -518,6 +518,10 @@ export default function App() {
   const [nodesData, setNodesData] = useState<{ available: boolean; clusters: NodeCluster[] } | null>(null)
   const requestLlmConfig = useCallback(() => { clientRef.current?.getLlmConfig() }, [])
   const saveLlmConfig = useCallback((patch: { default_model?: string; api_base?: string; api_key?: string }) => { clientRef.current?.updateLlmConfig(patch) }, [])
+
+  useEffect(() => {
+    if (activePage === 'nodes') clientRef.current?.listNodes()
+  }, [activePage])
   const timersRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set())
   const replayedEventIds = useRef<Set<string>>(new Set())
   const swarmAgentsRef = useRef<AgentInfo[]>([])
