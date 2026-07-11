@@ -1120,11 +1120,11 @@ class WSHandler:
         if user_id is None:
             await ws.close(code=4401, message=b"unauthorized")
             return ws
-        self._client_user_ids[ws] = user_id
         if self._shutting_down:
             await ws.close()
             return ws
         self._clients.add(ws)
+        self._client_user_ids[ws] = user_id
         self._ensure_progress_flush_loop()
         logger.info(f"WS client connected ({len(self._clients)} total)")
 
