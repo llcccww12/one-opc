@@ -64,6 +64,7 @@ if TYPE_CHECKING:
     from opc.plugins.office_ui.agent_store import AgentStore
     from opc.plugins.office_ui.chat_store import ChatStore
     from opc.plugins.office_ui.event_adapter import EventAdapter
+    from opc.plugins.office_ui.user_store import UserStore
 
 from opc.plugins.office_ui.dispatcher import Dispatcher
 from opc.plugins.office_ui.services import (
@@ -403,6 +404,7 @@ class WSHandler:
         agent_store: AgentStore,
         chat_store: ChatStore,
         event_adapter: EventAdapter,
+        user_store: UserStore | None = None,
     ) -> None:
         self.engine = engine
         self._root_engine = engine
@@ -411,6 +413,8 @@ class WSHandler:
         self.agent_store = agent_store
         self.chat_store = chat_store
         self.event_adapter = event_adapter
+        self._user_store = user_store
+        self._client_user_ids: dict[Any, str] = {}
         self._clients: set[aiohttp.web.WebSocketResponse] = set()
         self._client_project_ids: dict[Any, str] = {}
         self._client_switch_seq: dict[Any, str] = {}
@@ -1092,11 +1096,31 @@ class WSHandler:
     # Connection lifecycle
     # ══════════════════════════════════════════════════════════════════════
 
+    async def _authenticate_ws_request(self, request: Any) -> str | None:
+        """Resolve the user_id for an inbound WS connection, or None to reject it.
+
+        When no user_store is configured (the common case in unit tests that
+        construct WSHandler directly), auth is skipped entirely — only the
+        real office-UI server wires a UserStore, so production always enforces
+        this check.
+        """
+        if self._user_store is None:
+            return "anonymous"
+        token = request.query.get("token")
+        if not token:
+            return None
+        return await self._user_store.get_user_id_for_token(token)
+
     async def handle_ws(self, request: aiohttp.web.Request) -> aiohttp.web.WebSocketResponse:
         """Handle a WebSocket connection."""
         import aiohttp.web as web
         ws = web.WebSocketResponse()
         await ws.prepare(request)
+        user_id = await self._authenticate_ws_request(request)
+        if user_id is None:
+            await ws.close(code=4401, message=b"unauthorized")
+            return ws
+        self._client_user_ids[ws] = user_id
         if self._shutting_down:
             await ws.close()
             return ws
@@ -1160,6 +1184,7 @@ class WSHandler:
                 logger.error(f"WS handler error: {e}")
         finally:
             self._clients.discard(ws)
+            self._client_user_ids.pop(ws, None)
             try:
                 self._client_project_ids.pop(ws, None)
                 self._client_switch_seq.pop(ws, None)
