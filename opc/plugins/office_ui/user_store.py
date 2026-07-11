@@ -65,6 +65,15 @@ class UserStore:
             )
             """
         )
+        await self._db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS project_owners (
+                project_id TEXT PRIMARY KEY,
+                owner_user_id TEXT NOT NULL,
+                created_at REAL NOT NULL
+            )
+            """
+        )
         await self._db.commit()
 
     async def create_invite_code(self, code: str) -> bool:
@@ -159,3 +168,30 @@ class UserStore:
         cursor = await self._db.execute("SELECT user_id FROM sessions WHERE token = ?", (token,))
         row = await cursor.fetchone()
         return row[0] if row else None
+
+    async def record_project_owner(self, project_id: str, user_id: str) -> None:
+        """Record project ownership. First writer wins — a project_id is claimed once."""
+        async with self._write_lock:
+            await self._db.execute(
+                "INSERT OR IGNORE INTO project_owners (project_id, owner_user_id, created_at) VALUES (?, ?, ?)",
+                (project_id, user_id, time.time()),
+            )
+            await self._db.commit()
+
+    async def get_project_owner(self, project_id: str) -> str | None:
+        cursor = await self._db.execute(
+            "SELECT owner_user_id FROM project_owners WHERE project_id = ?", (project_id,)
+        )
+        row = await cursor.fetchone()
+        return row[0] if row else None
+
+    async def list_project_owners(self) -> dict[str, str]:
+        cursor = await self._db.execute("SELECT project_id, owner_user_id FROM project_owners")
+        rows = await cursor.fetchall()
+        return {row[0]: row[1] for row in rows}
+
+    async def get_sole_user_id(self) -> str | None:
+        """Return the only user's id, or None if there are zero or 2+ users."""
+        cursor = await self._db.execute("SELECT user_id FROM users LIMIT 2")
+        rows = await cursor.fetchall()
+        return rows[0][0] if len(rows) == 1 else None
