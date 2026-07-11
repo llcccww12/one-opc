@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import hmac
 import secrets
 import sqlite3
 import time
@@ -49,8 +50,8 @@ class UserStore:
             CREATE TABLE IF NOT EXISTS users (
                 user_id TEXT PRIMARY KEY,
                 username TEXT NOT NULL UNIQUE,
-                password_salt TEXT NOT NULL,
-                password_hash TEXT NOT NULL,
+                credential_salt TEXT NOT NULL,
+                credential_hash TEXT NOT NULL,
                 created_at REAL NOT NULL
             )
             """
@@ -66,13 +67,15 @@ class UserStore:
         )
         await self._db.commit()
 
-    async def create_invite_code(self, code: str) -> None:
+    async def create_invite_code(self, code: str) -> bool:
+        """Create a new invite code. Returns True if created, False if it already existed."""
         async with self._write_lock:
-            await self._db.execute(
+            cursor = await self._db.execute(
                 "INSERT OR IGNORE INTO invite_codes (code, status, created_at) VALUES (?, 'unused', ?)",
                 (code, time.time()),
             )
             await self._db.commit()
+            return cursor.rowcount > 0
 
     async def register(self, username: str, invite_code: str) -> tuple[str | None, str | None]:
         """Create a user account. Returns (user_id, None) or (None, error_code)."""
@@ -110,12 +113,12 @@ class UserStore:
                 return None, "invite_code_used"
 
             salt = secrets.token_hex(16)
-            password_hash = _hash_invite_code(invite_code, salt)
+            credential_hash = _hash_invite_code(invite_code, salt)
             try:
                 await self._db.execute(
-                    "INSERT INTO users (user_id, username, password_salt, password_hash, created_at) "
+                    "INSERT INTO users (user_id, username, credential_salt, credential_hash, created_at) "
                     "VALUES (?, ?, ?, ?, ?)",
-                    (user_id, username, salt, password_hash, time.time()),
+                    (user_id, username, salt, credential_hash, time.time()),
                 )
             except sqlite3.IntegrityError:
                 # Another request registered this username between our check above and
@@ -131,14 +134,14 @@ class UserStore:
     async def authenticate(self, username: str, invite_code: str) -> str | None:
         """Verify username + invite_code. Returns user_id on success, None on failure."""
         cursor = await self._db.execute(
-            "SELECT user_id, password_salt, password_hash FROM users WHERE username = ?",
+            "SELECT user_id, credential_salt, credential_hash FROM users WHERE username = ?",
             (username,),
         )
         row = await cursor.fetchone()
         if row is None:
             return None
         user_id, salt, expected_hash = row
-        if _hash_invite_code(invite_code, salt) != expected_hash:
+        if not hmac.compare_digest(_hash_invite_code(invite_code, salt), expected_hash):
             return None
         return user_id
 

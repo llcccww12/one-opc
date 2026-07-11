@@ -1762,7 +1762,7 @@ def user_create_invite(
 
     invite_code = code or _secrets.token_hex(4).upper()
 
-    async def _create() -> None:
+    async def _create() -> bool:
         opc_home = get_opc_home()
         opc_home.mkdir(parents=True, exist_ok=True)
         db = await aiosqlite.connect(str(opc_home / "ui_state.db"))
@@ -1770,16 +1770,18 @@ def user_create_invite(
             await db.execute("PRAGMA busy_timeout=30000")
             store = UserStore(db)
             await store.initialize()
-            await store.create_invite_code(invite_code)
+            return await store.create_invite_code(invite_code)
         finally:
             await db.close()
 
-    asyncio.run(_create())
-    payload = {"ok": True, "invite_code": invite_code}
+    created = asyncio.run(_create())
+    payload = {"ok": created, "invite_code": invite_code}
     if json_output:
         console.print(json.dumps(payload, ensure_ascii=False, indent=2))
-    else:
+    elif created:
         console.print(f"Invite code created: [success]{invite_code}[/success]")
+    else:
+        console.print(f"Invite code already exists: [warning]{invite_code}[/warning]")
 
 
 session_app = typer.Typer(help="Manage OPC sessions")

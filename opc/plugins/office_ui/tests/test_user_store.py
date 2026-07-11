@@ -22,6 +22,15 @@ class UserStoreTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(error)
         self.assertIsNotNone(user_id)
 
+    async def test_create_invite_code_returns_true_when_newly_created(self) -> None:
+        created = await self.store.create_invite_code("CODE1")
+        self.assertTrue(created)
+
+    async def test_create_invite_code_returns_false_when_already_exists(self) -> None:
+        await self.store.create_invite_code("CODE1")
+        created_again = await self.store.create_invite_code("CODE1")
+        self.assertFalse(created_again)
+
     async def test_register_with_unknown_invite_code_fails(self) -> None:
         user_id, error = await self.store.register("alice", "BOGUS")
         self.assertIsNone(user_id)

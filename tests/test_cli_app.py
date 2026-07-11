@@ -3108,6 +3108,20 @@ class CliUserCommandTests(unittest.TestCase):
             self.assertEqual(result.exit_code, 0, result.output)
             self.assertIn("Invite code created", result.output)
 
+    def test_create_invite_with_duplicate_code_reports_already_exists(self) -> None:
+        runner = CliRunner()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            opc_home = Path(tmpdir) / ".opc"
+            with patch("opc.cli.app.get_opc_home", return_value=opc_home):
+                first = runner.invoke(app, ["user", "create-invite", "DUPCODE1"])
+                self.assertEqual(first.exit_code, 0, first.output)
+
+                second = runner.invoke(app, ["user", "create-invite", "DUPCODE1"])
+
+            self.assertEqual(second.exit_code, 0, second.output)
+            self.assertIn("already exists", second.output)
+            self.assertIn("DUPCODE1", second.output)
+
 
 class CliBoardCommandTests(unittest.TestCase):
     def setUp(self) -> None:
