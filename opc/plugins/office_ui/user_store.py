@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import secrets
+import sqlite3
 import time
 
 import aiosqlite
@@ -67,31 +68,44 @@ class UserStore:
 
     async def register(self, username: str, invite_code: str) -> tuple[str | None, str | None]:
         """Create a user account. Returns (user_id, None) or (None, error_code)."""
+        cursor = await self._db.execute("SELECT 1 FROM users WHERE username = ?", (username,))
+        if await cursor.fetchone() is not None:
+            return None, "username_taken"
+
         cursor = await self._db.execute(
             "SELECT status FROM invite_codes WHERE code = ?", (invite_code,)
         )
         row = await cursor.fetchone()
         if row is None:
             return None, "invite_code_invalid"
-        if row[0] != "unused":
-            return None, "invite_code_used"
-
-        cursor = await self._db.execute("SELECT 1 FROM users WHERE username = ?", (username,))
-        if await cursor.fetchone() is not None:
-            return None, "username_taken"
 
         user_id = secrets.token_hex(16)
-        salt = secrets.token_hex(16)
-        password_hash = _hash_invite_code(invite_code, salt)
-        await self._db.execute(
-            "INSERT INTO users (user_id, username, password_salt, password_hash, created_at) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (user_id, username, salt, password_hash, time.time()),
-        )
-        await self._db.execute(
-            "UPDATE invite_codes SET status = 'used', used_by_user_id = ? WHERE code = ?",
+
+        # Atomically claim the invite code: the WHERE status='unused' guard means only
+        # one concurrent register() call can win this UPDATE, closing the TOCTOU race
+        # between the SELECT above and this claim.
+        cursor = await self._db.execute(
+            "UPDATE invite_codes SET status = 'used', used_by_user_id = ? "
+            "WHERE code = ? AND status = 'unused'",
             (user_id, invite_code),
         )
+        if cursor.rowcount == 0:
+            return None, "invite_code_used"
+
+        salt = secrets.token_hex(16)
+        password_hash = _hash_invite_code(invite_code, salt)
+        try:
+            await self._db.execute(
+                "INSERT INTO users (user_id, username, password_salt, password_hash, created_at) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (user_id, username, salt, password_hash, time.time()),
+            )
+        except sqlite3.IntegrityError:
+            # Another request registered this username between our check above and
+            # this INSERT. Roll back so the invite code claim above is undone too.
+            await self._db.rollback()
+            return None, "username_taken"
+
         await self._db.commit()
         return user_id, None
 
