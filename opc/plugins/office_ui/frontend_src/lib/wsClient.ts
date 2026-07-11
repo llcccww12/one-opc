@@ -24,6 +24,7 @@ interface SocketHandlers {
   onEvent?: (event: VisualEvent) => void
   onAck?: (payload: Record<string, unknown>) => void
   onStatus?: (status: SocketStatus, detail?: string) => void
+  onAuthError?: () => void
   onChannelCreated?: (payload: { channel_id: string; name: string; channel_type: string; participants: string[] }) => void
   onBoardEvent?: (payload: Record<string, unknown>) => void
   onCrossOfficeCollab?: (payload: { agent_ids: string[]; task_id: string; action: string }) => void
@@ -209,10 +210,15 @@ export class VisualSocketClient {
     this.ws.onerror = () => {
       this.handlers.onStatus?.('error', 'WebSocket error')
     }
-    this.ws.onclose = () => {
+    this.ws.onclose = (event) => {
       this.stopHeartbeat()
       this.handlers.onStatus?.('disconnected')
       this.ws = null
+      if (event.code === 4401) {
+        this.closedByUser = true
+        this.handlers.onAuthError?.()
+        return
+      }
       if (!this.closedByUser) {
         this.scheduleReconnect()
       }

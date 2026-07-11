@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { VisualSocketClient } from './lib/wsClient'
+import { getStoredToken, clearSession } from './lib/auth'
 import { PhaserGame } from './game/PhaserGame'
 import { GameBridge } from './game/GameBridge'
 import { CollisionEditor } from './components/CollisionEditor'
@@ -73,7 +74,9 @@ type AppExecMode = 'task' | 'company' | 'org'
 
 function defaultWsUrl(): string {
   const wsProto = window.location.protocol === 'https:' ? 'wss' : 'ws'
-  return `${wsProto}://${window.location.hostname}:${window.location.port || '8765'}/ws`
+  const token = getStoredToken()
+  const query = token ? `?token=${encodeURIComponent(token)}` : ''
+  return `${wsProto}://${window.location.hostname}:${window.location.port || '8765'}/ws${query}`
 }
 
 function statusClass(status: SocketStatus): string {
@@ -1108,6 +1111,10 @@ export default function App() {
           client.orgSavedList()
           client.collabSync(projectId, undefined, projectViewGenerationRef.current)
         }
+      },
+      onAuthError: () => {
+        clearSession()
+        window.location.reload()
       },
       onCollabMessage: (type, payload) => {
         try {
