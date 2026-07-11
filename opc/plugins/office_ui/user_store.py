@@ -26,11 +26,12 @@ class UserStore:
 
     def __init__(self, db: aiosqlite.Connection) -> None:
         self._db = db
-        # Serializes register() so that no two calls can ever be mid-transaction
-        # on the shared connection at once: SQLite transactions are scoped to the
-        # connection, not the caller, so an interleaved rollback() from one call
-        # could otherwise discard another call's uncommitted writes.
-        self._register_lock = asyncio.Lock()
+        # Serializes all write methods (register/create_session/create_invite_code)
+        # so that no two calls can ever be mid-transaction on the shared connection
+        # at once: SQLite transactions are scoped to the connection, not the caller,
+        # so an interleaved commit()/rollback() from one call could otherwise finalize
+        # or discard another call's uncommitted writes.
+        self._write_lock = asyncio.Lock()
 
     async def initialize(self) -> None:
         await self._db.execute(
@@ -66,11 +67,12 @@ class UserStore:
         await self._db.commit()
 
     async def create_invite_code(self, code: str) -> None:
-        await self._db.execute(
-            "INSERT OR IGNORE INTO invite_codes (code, status, created_at) VALUES (?, 'unused', ?)",
-            (code, time.time()),
-        )
-        await self._db.commit()
+        async with self._write_lock:
+            await self._db.execute(
+                "INSERT OR IGNORE INTO invite_codes (code, status, created_at) VALUES (?, 'unused', ?)",
+                (code, time.time()),
+            )
+            await self._db.commit()
 
     async def register(self, username: str, invite_code: str) -> tuple[str | None, str | None]:
         """Create a user account. Returns (user_id, None) or (None, error_code)."""
@@ -82,7 +84,7 @@ class UserStore:
         # the same connection. Serializing here means only one register() call can
         # ever be mid-transaction at a time, so rollback() can only ever undo this
         # call's own uncommitted invite-code claim.
-        async with self._register_lock:
+        async with self._write_lock:
             cursor = await self._db.execute("SELECT 1 FROM users WHERE username = ?", (username,))
             if await cursor.fetchone() is not None:
                 return None, "username_taken"
@@ -142,11 +144,12 @@ class UserStore:
 
     async def create_session(self, user_id: str) -> str:
         token = secrets.token_urlsafe(32)
-        await self._db.execute(
-            "INSERT INTO sessions (token, user_id, created_at) VALUES (?, ?, ?)",
-            (token, user_id, time.time()),
-        )
-        await self._db.commit()
+        async with self._write_lock:
+            await self._db.execute(
+                "INSERT INTO sessions (token, user_id, created_at) VALUES (?, ?, ?)",
+                (token, user_id, time.time()),
+            )
+            await self._db.commit()
         return token
 
     async def get_user_id_for_token(self, token: str) -> str | None:
