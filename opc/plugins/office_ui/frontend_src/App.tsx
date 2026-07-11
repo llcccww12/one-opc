@@ -513,6 +513,8 @@ export default function App() {
   const [orgToast, setOrgToast] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null)
   const [llmConfig, setLlmConfig] = useState<{ default_model: string; api_base: string; api_key_set: boolean } | null>(null)
   const [llmConfigSaveMessage, setLlmConfigSaveMessage] = useState('')
+  const requestLlmConfig = useCallback(() => { clientRef.current?.getLlmConfig() }, [])
+  const saveLlmConfig = useCallback((patch: { default_model?: string; api_base?: string; api_key?: string }) => { clientRef.current?.updateLlmConfig(patch) }, [])
   const timersRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set())
   const replayedEventIds = useRef<Set<string>>(new Set())
   const swarmAgentsRef = useRef<AgentInfo[]>([])
@@ -2275,8 +2277,8 @@ export default function App() {
         <div className="rail-bottom">
           <IdentityMenu
             llmConfig={llmConfig}
-            onRequestLlmConfig={() => clientRef.current?.getLlmConfig()}
-            onSaveLlmConfig={(patch) => clientRef.current?.updateLlmConfig(patch)}
+            onRequestLlmConfig={requestLlmConfig}
+            onSaveLlmConfig={saveLlmConfig}
             saveMessage={llmConfigSaveMessage}
           />
           <button className={`rail-btn${showHelp ? ' active' : ''}`} onClick={() => setShowHelp((v) => !v)} title="使用手册">
