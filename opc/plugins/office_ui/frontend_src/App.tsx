@@ -3,6 +3,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { VisualSocketClient } from './lib/wsClient'
 import { getStoredToken, clearSession } from './lib/auth'
+import { IdentityMenu } from './auth/IdentityMenu'
 import { PhaserGame } from './game/PhaserGame'
 import { GameBridge } from './game/GameBridge'
 import { CollisionEditor } from './components/CollisionEditor'
@@ -510,6 +511,8 @@ export default function App() {
   const [orgCreatePending, setOrgCreatePending] = useState(false)
   const [orgCreateResult, setOrgCreateResult] = useState<(OrgSavedCreatePayload & { nonce: number }) | null>(null)
   const [orgToast, setOrgToast] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null)
+  const [llmConfig, setLlmConfig] = useState<{ default_model: string; api_base: string; api_key_set: boolean } | null>(null)
+  const [llmConfigSaveMessage, setLlmConfigSaveMessage] = useState('')
   const timersRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set())
   const replayedEventIds = useRef<Set<string>>(new Set())
   const swarmAgentsRef = useRef<AgentInfo[]>([])
@@ -1634,6 +1637,21 @@ export default function App() {
         }
         // If backend switched to default, collab_sync_push + project_switched will follow
       },
+      onGetLlmConfig: (payload) => {
+        setLlmConfig(payload)
+      },
+      onUpdateLlmConfig: (payload) => {
+        if (payload.ok) {
+          setLlmConfig({
+            default_model: payload.default_model ?? '',
+            api_base: payload.api_base ?? '',
+            api_key_set: Boolean(payload.api_key_set),
+          })
+          setLlmConfigSaveMessage('Saved')
+        } else {
+          setLlmConfigSaveMessage(payload.error || 'Save failed')
+        }
+      },
       onOrgInfo: (payload) => {
         const normalized = normalizeOrgInfoPayload(payload)
         setOrgInfoData(normalized)
@@ -2255,6 +2273,12 @@ export default function App() {
           </button>
         </div>
         <div className="rail-bottom">
+          <IdentityMenu
+            llmConfig={llmConfig}
+            onRequestLlmConfig={() => clientRef.current?.getLlmConfig()}
+            onSaveLlmConfig={(patch) => clientRef.current?.updateLlmConfig(patch)}
+            saveMessage={llmConfigSaveMessage}
+          />
           <button className={`rail-btn${showHelp ? ' active' : ''}`} onClick={() => setShowHelp((v) => !v)} title="使用手册">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
             <span className="rail-btn-label">使用手册</span>
