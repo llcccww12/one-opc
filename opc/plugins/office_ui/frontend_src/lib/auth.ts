@@ -28,6 +28,7 @@ export function validateCredentials(username: string, inviteCode: string): strin
 export interface AuthResult {
   ok: boolean
   token?: string
+  userId?: string
   error?: string
 }
 
@@ -42,7 +43,7 @@ async function postAuth(path: string, username: string, inviteCode: string): Pro
     if (!res.ok || !data.ok) {
       return { ok: false, error: data.error ?? '请求失败' }
     }
-    return { ok: true, token: data.token }
+    return { ok: true, token: data.token, userId: data.user_id }
   } catch {
     return { ok: false, error: '网络错误' }
   }

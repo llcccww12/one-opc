@@ -15,7 +15,7 @@ async function run(): Promise<void> {
     capturedBody = init.body as string
     return {
       ok: true,
-      json: async () => ({ ok: true, token: 'tok123' }),
+      json: async () => ({ ok: true, token: 'tok123', user_id: 'user-123' }),
     }
   }
   const result = await register('alice', 'invite1')
@@ -23,6 +23,7 @@ async function run(): Promise<void> {
   assert.deepEqual(JSON.parse(capturedBody), { username: 'alice', invite_code: 'invite1' })
   assert.equal(result.ok, true)
   assert.equal(result.token, 'tok123')
+  assert.equal(result.userId, 'user-123')
 
   ;(globalThis as any).fetch = async () => ({
     ok: false,
