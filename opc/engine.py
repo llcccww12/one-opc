@@ -460,6 +460,7 @@ class OPCEngine:
         tracked = (
             "system_config.yaml",
             "agent_config.yaml",
+            "llm_config.yaml",
             "company_corporate_config.yaml",
         )
         signature: list[tuple[str, float]] = []
@@ -497,6 +498,10 @@ class OPCEngine:
         self.config.system = loaded.system
         self.config.agents = loaded.agents
         self.config.autonomy = loaded.autonomy
+        self.config.llm = loaded.llm
+        self.llm = LLMProvider(self.config.llm, opc_home=self.opc_home)
+        if self.history_compactor is not None:
+            self.history_compactor.llm = self.llm
         self._runtime_config_signature = signature
 
         active_org_id = None

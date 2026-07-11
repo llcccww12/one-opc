@@ -1006,6 +1006,38 @@ class RuntimeConfigEnforcementTests(unittest.IsolatedAsyncioTestCase):
             engine.org_engine.reload_from_config.assert_called_once()
             engine.org_engine.configure_task_mode_tools.assert_called_once()
 
+    async def test_runtime_refresh_hot_reloads_llm_config(self) -> None:
+        with _workspace_tempdir() as opc_home:
+            config_dir = opc_home / "config"
+            config_dir.mkdir(parents=True, exist_ok=True)
+
+            engine = OPCEngine(config=OPCConfig(), opc_home=opc_home)
+            engine.company_executor = SimpleNamespace(work_item_timeout=3600)
+            engine.approval_engine = SimpleNamespace(config=engine.config.autonomy)
+            engine.adapter_registry = SimpleNamespace(config=None, initialize=AsyncMock())
+            engine.org_engine = SimpleNamespace(
+                config=None,
+                reload_from_config=MagicMock(),
+                configure_task_mode_tools=MagicMock(),
+            )
+            engine.history_compactor = SimpleNamespace(llm=engine.llm)
+            original_llm = engine.llm
+            original_history_compactor_llm = engine.history_compactor.llm
+
+            (config_dir / "llm_config.yaml").write_text(
+                yaml.safe_dump({"llm": {"default_model": "anthropic/claude-opus-4-1", "api_key": "sk-new"}}),
+                encoding="utf-8",
+            )
+
+            await engine._refresh_runtime_config_from_disk()
+
+            self.assertEqual(engine.config.llm.default_model, "anthropic/claude-opus-4-1")
+            self.assertEqual(engine.config.llm.api_key, "sk-new")
+            self.assertIsNot(engine.llm, original_llm)
+            self.assertEqual(engine.llm.config.api_key, "sk-new")
+            self.assertIs(engine.history_compactor.llm, engine.llm)
+            self.assertIsNot(engine.history_compactor.llm, original_history_compactor_llm)
+
     async def test_auto_mode_keeps_external_agents_for_complex_work(self) -> None:
         engine = OPCEngine(config=OPCConfig())
         engine.org_engine = SimpleNamespace()
