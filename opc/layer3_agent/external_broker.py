@@ -94,11 +94,30 @@ class ExternalAgentBroker:
         approval_engine: ApprovalEngine,
         task_preparer: Callable[[Task], Coroutine[Any, Any, Task]] | None = None,
         communication: CommunicationManager | None = None,
+        llm_config_provider: Callable[[], Any] | None = None,
     ) -> None:
         self.store = store
         self.approval_engine = approval_engine
         self.task_preparer = task_preparer
         self.communication = communication
+        self._llm_config_provider = llm_config_provider
+
+    def _apply_llm_config_env(self, env: dict[str, str]) -> None:
+        """Inject the currently-configured LLM api_key/api_base into env, in place.
+
+        Read via a provider callable (not a captured LLMConfig reference) so this
+        reflects hot-reloaded config (see OPCEngine._refresh_runtime_config_from_disk)
+        without requiring a broker restart.
+        """
+        if self._llm_config_provider is None:
+            return
+        llm_config = self._llm_config_provider()
+        api_key = str(getattr(llm_config, "api_key", "") or "").strip()
+        api_base = str(getattr(llm_config, "api_base", "") or "").strip()
+        if api_key:
+            env["ANTHROPIC_API_KEY"] = api_key
+        if api_base:
+            env["ANTHROPIC_BASE_URL"] = api_base
 
     @staticmethod
     def _normalize_external_agent_choice(value: Any) -> str:
@@ -543,6 +562,7 @@ class ExternalAgentBroker:
         # Company-mode external agents get the opc-collab CLI surface.
         # Task mode runs do not load the communication surface at all.
         comms_env: dict[str, str] = self._memory_env(task)
+        self._apply_llm_config_env(comms_env)
         collaboration_enabled = company_collaboration_enabled_for_task(task)
         workspace_root = ""
         output_root = ""

@@ -637,6 +637,7 @@ class OPCEngine:
             self.approval_engine,
             task_preparer=self._build_external_agent_task,
             communication=self.communication,
+            llm_config_provider=lambda: self.config.llm,
         )
         self.secretary = SecretaryService(
             llm=self.llm,
