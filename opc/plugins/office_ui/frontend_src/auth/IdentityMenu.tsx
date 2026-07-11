@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { clearSession, getStoredUsername } from '../lib/auth'
 import { SettingsPanel, type LlmConfigPayload } from './SettingsPanel'
 import './identityMenu.css'
@@ -13,7 +13,9 @@ interface IdentityMenuProps {
 export function IdentityMenu({ llmConfig, onRequestLlmConfig, onSaveLlmConfig, saveMessage }: IdentityMenuProps) {
   const [open, setOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [popoverStyle, setPopoverStyle] = useState<CSSProperties>({})
   const wrapperRef = useRef<HTMLDivElement>(null)
+  const avatarRef = useRef<HTMLButtonElement>(null)
   const username = getStoredUsername()
 
   useEffect(() => {
@@ -26,6 +28,19 @@ export function IdentityMenu({ llmConfig, onRequestLlmConfig, onSaveLlmConfig, s
     return () => document.removeEventListener('mousedown', onOutsideClick)
   }, [])
 
+  useEffect(() => {
+    if (!open || !avatarRef.current) return
+    // .rail clips overflowing descendants (needed for its width-collapse transition),
+    // which also clips absolutely-positioned popovers from hit-testing. Escape it by
+    // positioning the popover with `fixed` at the avatar's on-screen coordinates.
+    const rect = avatarRef.current.getBoundingClientRect()
+    setPopoverStyle({
+      position: 'fixed',
+      left: rect.left,
+      bottom: window.innerHeight - rect.top + 6,
+    })
+  }, [open])
+
   if (!username) return null
 
   const handleLogout = () => {
@@ -35,11 +50,11 @@ export function IdentityMenu({ llmConfig, onRequestLlmConfig, onSaveLlmConfig, s
 
   return (
     <div className="identity-wrap" ref={wrapperRef}>
-      <button type="button" className="identity-avatar" onClick={() => setOpen(o => !o)} title={username}>
+      <button type="button" className="identity-avatar" ref={avatarRef} onClick={() => setOpen(o => !o)} title={username}>
         {username.charAt(0).toUpperCase()}
       </button>
       {open && (
-        <div className="identity-popover" role="menu">
+        <div className="identity-popover" role="menu" style={popoverStyle}>
           <div className="identity-popover-username">{username}</div>
           <button type="button" className="identity-popover-item" role="menuitem" onClick={() => { setSettingsOpen(true); setOpen(false) }}>
             模型 / API Key 设置
