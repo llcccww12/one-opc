@@ -9117,6 +9117,10 @@ class WSHandler:
         except ServiceError as exc:
             await self._send_service_error(ws, exc, action="update_llm_config")
 
+    async def _handle_list_nodes(self, ws: Any, data: dict) -> None:
+        result = await self._ensure_office_services().nodes.list_nodes()
+        await self._send_ack(ws, ok=True, **result.payload)
+
     async def _handle_switch_project(self, ws: Any, data: dict) -> None:
         """Switch the active project view without rebinding in-flight runtimes."""
         new_id = data.get("project_id", "").strip()
@@ -9955,6 +9959,7 @@ class WSHandler:
         "list_projects":       _handle_list_projects,
         "get_llm_config":      _handle_get_llm_config,
         "update_llm_config":   _handle_update_llm_config,
+        "list_nodes":          _handle_list_nodes,
         "create_project":      _handle_create_project,
         "delete_project":      _handle_delete_project,
         "switch_project":      _handle_switch_project,

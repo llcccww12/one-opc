@@ -51,6 +51,14 @@
 
 ---
 
+## 十九、Nodes（SkyPilot 集群状态，只读）
+
+| 功能 | 前端组件 | WS 请求类型 | 后端 Handler | 后端 Service | WS 响应类型 |
+|------|----------|-------------|--------------|--------------|-------------|
+| 刷新集群状态 | NodesPanel | `list_nodes` | `_handle_list_nodes` | `nodes.list_nodes` | `ack` |
+
+---
+
 ## 二、会话管理（Session）
 
 | 功能 | 前端组件 | WS 请求类型 | 后端 Handler | 后端 Service | WS 响应类型 |
