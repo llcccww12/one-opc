@@ -13,6 +13,7 @@ from .org import OrgService
 from .project import ProjectService
 from .runtime import RuntimeService
 from .session import SessionService
+from .settings import SettingsService
 from .talent import TalentService
 from .work_item import WorkItemService
 
@@ -20,6 +21,7 @@ from .work_item import WorkItemService
 class OfficeServices:
     def __init__(self, context: OfficeServiceContext) -> None:
         self.context = context
+        self.settings = SettingsService(context)
         self.project = ProjectService(context)
         self.session = SessionService(context)
         self.kanban = KanbanService(context, self.session)
@@ -49,6 +51,7 @@ __all__ = [
     "ServiceEvent",
     "ServiceResult",
     "SessionService",
+    "SettingsService",
     "TalentService",
     "WorkItemService",
 ]
