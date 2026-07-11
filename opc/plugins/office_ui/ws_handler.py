@@ -9106,20 +9106,20 @@ class WSHandler:
     async def _handle_get_llm_config(self, ws: Any, data: dict) -> None:
         try:
             result = await self._ensure_office_services().settings.get_llm_config()
-            await self._send_ack(ws, ok=True, **result.payload)
+            await self._safe_send_json(ws, {"type": "get_llm_config", "payload": {"ok": True, **result.payload}})
         except ServiceError as exc:
             await self._send_service_error(ws, exc, action="get_llm_config")
 
     async def _handle_update_llm_config(self, ws: Any, data: dict) -> None:
         try:
             result = await self._ensure_office_services().settings.update_llm_config(data.get("patch", {}) or {})
-            await self._send_ack(ws, ok=True, **result.payload)
+            await self._safe_send_json(ws, {"type": "update_llm_config", "payload": {"ok": True, **result.payload}})
         except ServiceError as exc:
             await self._send_service_error(ws, exc, action="update_llm_config")
 
     async def _handle_list_nodes(self, ws: Any, data: dict) -> None:
         result = await self._ensure_office_services().nodes.list_nodes()
-        await self._send_ack(ws, ok=True, **result.payload)
+        await self._safe_send_json(ws, {"type": "list_nodes", "payload": {"ok": True, **result.payload}})
 
     async def _handle_switch_project(self, ws: Any, data: dict) -> None:
         """Switch the active project view without rebinding in-flight runtimes."""

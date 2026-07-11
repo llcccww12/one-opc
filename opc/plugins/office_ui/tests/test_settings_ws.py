@@ -30,8 +30,10 @@ class SettingsWSTests(unittest.IsolatedAsyncioTestCase):
         ws = AsyncMock()
         await handler._handle_get_llm_config(ws, {})
         sent = ws.send_json.await_args.args[0] if ws.send_json.await_args else None
-        # _send_ack routes through _safe_send_json -> ws.send_json in this fake.
+        # Sent directly via _safe_send_json with its own type (not the generic "ack"),
+        # so the frontend's `case 'get_llm_config':` dispatch in wsClient.ts can fire.
         self.assertIsNotNone(sent)
+        self.assertEqual(sent["type"], "get_llm_config")
         self.assertEqual(sent["payload"]["default_model"], "anthropic/claude-sonnet-4-20250514")
 
     async def test_update_llm_config_applies_patch(self) -> None:
@@ -41,6 +43,11 @@ class SettingsWSTests(unittest.IsolatedAsyncioTestCase):
         with mock_patch.object(OPCConfig, "save"):
             await handler._handle_update_llm_config(ws, {"patch": {"default_model": "anthropic/claude-opus-4-1"}})
         self.assertEqual(handler.engine.config.llm.default_model, "anthropic/claude-opus-4-1")
+        sent = ws.send_json.await_args.args[0] if ws.send_json.await_args else None
+        # Must be its own type, not the generic "ack", so `case 'update_llm_config':`
+        # in wsClient.ts fires and the SettingsPanel "Saved" toast shows.
+        self.assertIsNotNone(sent)
+        self.assertEqual(sent["type"], "update_llm_config")
 
 
 if __name__ == "__main__":

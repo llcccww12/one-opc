@@ -28,6 +28,9 @@ class NodesWSTests(unittest.IsolatedAsyncioTestCase):
         with patch("shutil.which", return_value=None):
             await handler._handle_list_nodes(ws, {})
         sent = ws.send_json.await_args.args[0]
+        # Sent directly via _safe_send_json with its own type (not the generic "ack"),
+        # so the frontend's `case 'list_nodes':` dispatch in wsClient.ts can fire.
+        self.assertEqual(sent["type"], "list_nodes")
         self.assertFalse(sent["payload"]["available"])
 
 
