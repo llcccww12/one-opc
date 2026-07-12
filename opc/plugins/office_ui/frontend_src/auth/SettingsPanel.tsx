@@ -47,8 +47,8 @@ export function SettingsPanel({ open, onClose, llmConfig, onRequestLlmConfig, on
   }
 
   return createPortal(
-    <div className="org-create-backdrop" role="presentation" onMouseDown={onClose}>
-      <div className="org-create-modal" role="dialog" aria-modal="true" aria-labelledby="settings-panel-title" onMouseDown={e => e.stopPropagation()}>
+    <div className="settings-backdrop" role="presentation" onMouseDown={onClose}>
+      <div className="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-panel-title" onMouseDown={e => e.stopPropagation()}>
         <div className="org-create-header">
           <div>
             <span className="org-create-eyebrow">Settings</span>

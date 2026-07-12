@@ -61,3 +61,30 @@
 .identity-popover-item:hover {
   background: var(--surface-hover);
 }
+
+/* ── Settings Panel (lighter variant of org-create modal) ── */
+
+.settings-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.15);
+}
+
+.settings-modal {
+  width: min(420px, 100%);
+  max-height: min(600px, calc(100vh - 48px));
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-elevated);
+  box-shadow: 0 12px 40px rgb(0 0 0 / 0.18);
+  overflow: hidden;
+}

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
+import { createPortal } from 'react-dom'
 import { clearSession, getStoredUsername } from '../lib/auth'
 import { SettingsPanel, type LlmConfigPayload } from './SettingsPanel'
 import './identityMenu.css'
@@ -16,11 +17,15 @@ export function IdentityMenu({ llmConfig, onRequestLlmConfig, onSaveLlmConfig, s
   const [popoverStyle, setPopoverStyle] = useState<CSSProperties>({})
   const wrapperRef = useRef<HTMLDivElement>(null)
   const avatarRef = useRef<HTMLButtonElement>(null)
+  const popoverRef = useRef<HTMLDivElement>(null)
   const username = getStoredUsername()
 
   useEffect(() => {
     const onOutsideClick = (e: MouseEvent) => {
-      if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node)) {
+      if (
+        wrapperRef.current && !wrapperRef.current.contains(e.target as Node) &&
+        popoverRef.current && !popoverRef.current.contains(e.target as Node)
+      ) {
         setOpen(false)
       }
     }
@@ -53,8 +58,8 @@ export function IdentityMenu({ llmConfig, onRequestLlmConfig, onSaveLlmConfig, s
       <button type="button" className="identity-avatar" ref={avatarRef} onClick={() => setOpen(o => !o)} title={username}>
         {username.charAt(0).toUpperCase()}
       </button>
-      {open && (
-        <div className="identity-popover" role="menu" style={popoverStyle}>
+      {open && createPortal(
+        <div className="identity-popover" role="menu" style={popoverStyle} ref={popoverRef}>
           <div className="identity-popover-username">{username}</div>
           <button type="button" className="identity-popover-item" role="menuitem" onClick={() => { setSettingsOpen(true); setOpen(false) }}>
             模型 / API Key 设置
@@ -62,7 +67,8 @@ export function IdentityMenu({ llmConfig, onRequestLlmConfig, onSaveLlmConfig, s
           <button type="button" className="identity-popover-item" role="menuitem" onClick={handleLogout}>
             退出登录
           </button>
-        </div>
+        </div>,
+        document.body,
       )}
       <SettingsPanel
         open={settingsOpen}
