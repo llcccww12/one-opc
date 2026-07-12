@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 
 export interface LlmConfigPayload {
   default_model: string
@@ -45,15 +46,17 @@ export function SettingsPanel({ open, onClose, llmConfig, onRequestLlmConfig, on
     })
   }
 
-  return (
-    <div className="org-create-backdrop" role="presentation" onMouseDown={onClose}>
-      <div className="org-create-modal" role="dialog" aria-modal="true" aria-labelledby="settings-panel-title" onMouseDown={e => e.stopPropagation()}>
+  return createPortal(
+    <div className="settings-backdrop" role="presentation" onMouseDown={onClose}>
+      <div className="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-panel-title" onMouseDown={e => e.stopPropagation()}>
         <div className="org-create-header">
           <div>
             <span className="org-create-eyebrow">Settings</span>
             <h3 id="settings-panel-title" className="org-create-title">Model / API Key</h3>
           </div>
-          <button type="button" className="org-create-close" onClick={onClose} aria-label="Close">x</button>
+          <button type="button" className="org-create-close" onClick={onClose} aria-label="Close">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
         </div>
         <div className="org-create-panel">
           <label className="org-create-field">
@@ -69,9 +72,10 @@ export function SettingsPanel({ open, onClose, llmConfig, onRequestLlmConfig, on
             <input value={apiBase} onChange={e => setApiBase(e.target.value)} placeholder="(default)" />
           </label>
           {saveMessage && <div className="org-create-eyebrow">{saveMessage}</div>}
-          <button type="button" className="org-create-close" onClick={handleSave}>Save</button>
+          <button type="button" className="settings-save-btn" onClick={handleSave}>Save</button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
