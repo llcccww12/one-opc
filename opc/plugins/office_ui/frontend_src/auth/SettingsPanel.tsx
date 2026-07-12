@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 
 export interface LlmConfigPayload {
   default_model: string
@@ -45,7 +46,7 @@ export function SettingsPanel({ open, onClose, llmConfig, onRequestLlmConfig, on
     })
   }
 
-  return (
+  return createPortal(
     <div className="org-create-backdrop" role="presentation" onMouseDown={onClose}>
       <div className="org-create-modal" role="dialog" aria-modal="true" aria-labelledby="settings-panel-title" onMouseDown={e => e.stopPropagation()}>
         <div className="org-create-header">
@@ -72,6 +73,7 @@ export function SettingsPanel({ open, onClose, llmConfig, onRequestLlmConfig, on
           <button type="button" className="org-create-close" onClick={handleSave}>Save</button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
