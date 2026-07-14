@@ -32,6 +32,7 @@ from opc.layer2_organization.work_item_runtime import is_work_item_runtime_metad
 from opc.layer2_organization.work_item_identity import projection_id_for_task, turn_type_for_task
 from opc.layer2_organization.work_item_links import linked_work_item_id_for_task, set_linked_work_item_id
 from opc.layer3_agent.adapters.base import ExternalAgentAdapter
+from opc.layer3_agent.anthropic_env import anthropic_env_for
 from opc.layer3_agent.preflight import (
     assert_external_agent_write_contract,
     ExternalAgentPreflightError,
@@ -107,17 +108,17 @@ class ExternalAgentBroker:
 
         Read via a provider callable (not a captured LLMConfig reference) so this
         reflects hot-reloaded config (see OPCEngine._refresh_runtime_config_from_disk)
-        without requiring a broker restart.
+        without requiring a broker restart. The actual env-var mapping (which
+        header scheme to use) lives in anthropic_env.anthropic_env_for, shared
+        with WorkerRuntime's identical BYOK-credential-to-env-var need.
         """
         if self._llm_config_provider is None:
             return
         llm_config = self._llm_config_provider()
-        api_key = str(getattr(llm_config, "api_key", "") or "").strip()
-        api_base = str(getattr(llm_config, "api_base", "") or "").strip()
-        if api_key:
-            env["ANTHROPIC_API_KEY"] = api_key
-        if api_base:
-            env["ANTHROPIC_BASE_URL"] = api_base
+        api_key = str(getattr(llm_config, "api_key", "") or "")
+        api_base = str(getattr(llm_config, "api_base", "") or "")
+        default_model = str(getattr(llm_config, "default_model", "") or "")
+        env.update(anthropic_env_for(api_key, api_base, default_model))
 
     @staticmethod
     def _normalize_external_agent_choice(value: Any) -> str:
