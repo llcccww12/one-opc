@@ -72,3 +72,15 @@ class TenantVmStore:
                 (status, error_message, time.time(), user_id),
             )
             await self._db.commit()
+
+    async def reset_stale_launching(self) -> int:
+        """Mark any rows stuck in 'launching' (e.g. left behind by a server
+        restart/crash with no live task) as 'error' so bind() can retry them."""
+        async with self._write_lock:
+            cursor = await self._db.execute(
+                "UPDATE tenant_vms SET status = 'error', error_message = ?, updated_at = ? "
+                "WHERE status = 'launching'",
+                ("服务重启，请重试", time.time()),
+            )
+            await self._db.commit()
+            return cursor.rowcount

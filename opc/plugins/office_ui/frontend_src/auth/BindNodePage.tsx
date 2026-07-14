@@ -28,6 +28,8 @@ export function BindNodePage({ onReady }: BindNodePageProps) {
     setVmStatus(result)
     if (result.status === 'ready') {
       stopPolling()
+    } else if (result.status === 'launching' && pollRef.current === null) {
+      startPolling()
     }
   }
 

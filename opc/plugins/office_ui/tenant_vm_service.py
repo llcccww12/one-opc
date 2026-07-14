@@ -46,6 +46,11 @@ class TenantVmService:
             "error_message": vm["error_message"],
         }
 
+    async def recover_from_restart(self) -> None:
+        """Reset any 'launching' rows left behind by a prior process (crash
+        or restart) since their in-memory asyncio.Task no longer exists."""
+        await self._store.reset_stale_launching()
+
     async def bind(self, user_id: str) -> dict:
         vm = await self._store.get_vm(user_id)
 

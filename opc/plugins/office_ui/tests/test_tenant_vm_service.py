@@ -123,6 +123,15 @@ class TenantVmServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["status"], "none")
         self.assertIsNone(result["cluster_name"])
 
+    async def test_recover_from_restart_marks_stale_launching_vm_as_error(self) -> None:
+        await self.store.create_vm("user-1", "opc-tenant-abc123", "tok-abc")
+
+        await self.service.recover_from_restart()
+
+        final = await self.service.get_status("user-1")
+        self.assertEqual(final["status"], "error")
+        self.assertIsNotNone(final["error_message"])
+
 
 class TenantVmTaskYamlTests(unittest.TestCase):
     def test_task_yaml_is_valid_and_installs_claude_cli(self) -> None:

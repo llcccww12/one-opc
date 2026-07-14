@@ -132,6 +132,7 @@ async def create_app(
     tenant_vm_store = TenantVmStore(db)
     await tenant_vm_store.initialize()
     tenant_vm_service = TenantVmService(tenant_vm_store)
+    await tenant_vm_service.recover_from_restart()
 
     event_adapter = EventAdapter()
 

@@ -15,4 +15,11 @@ assert.match(source, /onReady\(\)/, 'BindNodePage must notify its parent once th
 assert.match(source, /setInterval\(refresh, POLL_INTERVAL_MS\)/, 'BindNodePage must poll while launching')
 assert.match(source, /clearInterval\(/, 'BindNodePage must stop polling once resolved')
 
+const refreshBody = source.slice(source.indexOf('const refresh ='), source.indexOf('useEffect('))
+assert.match(
+  refreshBody,
+  /if \(result\.status === 'launching'[^)]*\)\s*{\s*startPolling\(\)/,
+  'refresh() must resume polling if it observes status still launching (e.g. after a page reload mid-launch)',
+)
+
 console.log('BindNodePage.test.tsx passed')
