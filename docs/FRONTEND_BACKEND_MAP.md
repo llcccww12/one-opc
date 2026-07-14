@@ -59,6 +59,16 @@
 
 ---
 
+## 二十、按用户 BYOK 模型凭证（VM/worker 派发用）
+
+| 功能 | 前端组件 | WS 请求类型 | 后端 Handler | WS 响应类型 |
+|------|----------|-------------|--------------|-------------|
+| 读取当前用户凭证 | SettingsPanel | `get_vm_credentials` | `_handle_get_vm_credentials` | 同类型消息 |
+| 保存当前用户凭证 | SettingsPanel | `update_vm_credentials` | `_handle_update_vm_credentials` | 同类型消息 |
+
+
+---
+
 ## 二、会话管理（Session）
 
 | 功能 | 前端组件 | WS 请求类型 | 后端 Handler | 后端 Service | WS 响应类型 |

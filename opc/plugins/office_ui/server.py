@@ -25,6 +25,7 @@ from opc.plugins.office_ui.agent_store import AgentStore
 from opc.plugins.office_ui.chat_store import ChatStore
 from opc.plugins.office_ui.auth_routes import make_login_handler, make_register_handler
 from opc.plugins.office_ui.user_store import UserStore
+from opc.plugins.office_ui.credential_vault import CredentialVault
 from opc.plugins.office_ui.tenant_vm_store import TenantVmStore
 from opc.plugins.office_ui.tenant_vm_service import TenantVmService
 from opc.plugins.office_ui.bind_routes import make_bind_vm_handler, make_vm_status_handler
@@ -130,6 +131,9 @@ async def create_app(
     user_store = UserStore(db)
     await user_store.initialize()
 
+    credential_vault = CredentialVault(db, opc_home / "credential_key")
+    await credential_vault.initialize()
+
     tenant_vm_store = TenantVmStore(db)
     await tenant_vm_store.initialize()
     tenant_vm_service = TenantVmService(tenant_vm_store)
@@ -143,19 +147,14 @@ async def create_app(
     # ── Wire cross-cutting deps onto the broker (constructed inside
     # engine.initialize(), but credential_provider/owner_resolver depend on
     # office_ui-owned stores that only exist here) ─────────────────────
-    async def _stub_credential_provider(user_id: str):
-        # TODO: replace with credential_vault.get_credentials once the
-        # per-user BYOK credential vault (sub-project 3) lands.
-        return None
-
     engine.external_broker.configure_worker_relay(
         worker_registry=engine.worker_registry,
-        credential_provider=_stub_credential_provider,
+        credential_provider=credential_vault.get_credentials,
         owner_resolver=user_store.get_project_owner,
     )
 
     # ── WSHandler ─────────────────────────────────────────────────────
-    ws_handler = WSHandler(engine, agent_store, chat_store, event_adapter, user_store)
+    ws_handler = WSHandler(engine, agent_store, chat_store, event_adapter, user_store, credential_vault)
 
     # Wire engine callbacks through project-bound wrappers so project switches
     # do not retarget in-flight progress/runtime events to the active view.
