@@ -18,4 +18,8 @@ assert.match(source, /settings-modal/, 'SettingsPanel must use its own modal pan
 assert.match(source, /type="password"/, 'API key field must be a password input')
 assert.doesNotMatch(source, /VisualSocketClient/, 'SettingsPanel must stay presentational — no direct wsClient dependency')
 
+assert.match(source, /onRequestVmCredentials\(\)/, 'SettingsPanel must request current VM credentials on open')
+assert.match(source, /onSaveVmCredentials\(/, 'SettingsPanel must call onSaveVmCredentials on save')
+assert.match(source, /console\.anthropic\.com/, 'SettingsPanel must link to where to obtain an Anthropic API key')
+
 console.log('SettingsPanel.test.tsx passed')
