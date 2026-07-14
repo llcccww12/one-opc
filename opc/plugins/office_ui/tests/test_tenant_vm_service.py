@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import json
 import unittest
 from unittest.mock import AsyncMock, patch
 
 import aiosqlite
 
-from opc.plugins.office_ui.tenant_vm_service import TenantVmService
+from opc.plugins.office_ui.tenant_vm_service import TenantVmService, _cluster_name_for
 from opc.plugins.office_ui.tenant_vm_store import TenantVmStore
 
 
@@ -31,13 +32,16 @@ class TenantVmServiceTests(unittest.IsolatedAsyncioTestCase):
     async def test_bind_new_user_creates_record_and_launches_to_ready(self) -> None:
         launch_proc = _make_proc(0)
         verify_proc = _make_proc(0, stdout=b"1.0.0")
+        status_proc = _make_proc(0, stdout=json.dumps(
+            [{"name": _cluster_name_for("user-1"), "status": "UP"}]
+        ).encode())
         with patch("shutil.which", return_value="/usr/local/bin/sky"), \
-             patch("asyncio.create_subprocess_exec", AsyncMock(side_effect=[launch_proc, verify_proc])):
+             patch("asyncio.create_subprocess_exec", AsyncMock(side_effect=[launch_proc, verify_proc, status_proc])):
             result = await self.service.bind("user-1")
             self.assertEqual(result["status"], "launching")
             await self.service._tasks["user-1"]
+            final = await self.service.get_status("user-1")
 
-        final = await self.service.get_status("user-1")
         self.assertEqual(final["status"], "ready")
 
     async def test_bind_reports_error_when_sky_launch_fails(self) -> None:
@@ -99,29 +103,93 @@ class TenantVmServiceTests(unittest.IsolatedAsyncioTestCase):
         await self.store.update_status("user-1", "stopped")
         start_proc = _make_proc(0)
         verify_proc = _make_proc(0, stdout=b"1.0.0")
-        create_subprocess_mock = AsyncMock(side_effect=[start_proc, verify_proc])
+        status_proc = _make_proc(0, stdout=json.dumps(
+            [{"name": "opc-tenant-abc123", "status": "UP"}]
+        ).encode())
+        create_subprocess_mock = AsyncMock(side_effect=[start_proc, verify_proc, status_proc])
         with patch("shutil.which", return_value="/usr/local/bin/sky"), \
              patch("asyncio.create_subprocess_exec", create_subprocess_mock):
             await self.service.bind("user-1")
             await self.service._tasks["user-1"]
 
-        args, _kwargs = create_subprocess_mock.await_args_list[0]
-        self.assertIn("start", args)
-        final = await self.service.get_status("user-1")
+            args, _kwargs = create_subprocess_mock.await_args_list[0]
+            self.assertIn("start", args)
+            final = await self.service.get_status("user-1")
+
         self.assertEqual(final["status"], "ready")
 
     async def test_bind_on_ready_vm_is_a_noop(self) -> None:
         await self.store.create_vm("user-1", "opc-tenant-abc123", "tok-abc")
         await self.store.update_status("user-1", "ready")
-        with patch("asyncio.create_subprocess_exec") as create_subprocess_mock:
+        status_proc = _make_proc(0, stdout=json.dumps(
+            [{"name": "opc-tenant-abc123", "status": "UP"}]
+        ).encode())
+        with patch("shutil.which", return_value="/usr/local/bin/sky"), \
+             patch("asyncio.create_subprocess_exec", AsyncMock(return_value=status_proc)) as create_subprocess_mock:
             result = await self.service.bind("user-1")
-        create_subprocess_mock.assert_not_called()
+        for call in create_subprocess_mock.await_args_list:
+            self.assertNotIn("launch", call.args)
+            self.assertNotIn("start", call.args)
         self.assertEqual(result["status"], "ready")
 
     async def test_get_status_returns_none_when_unrecorded(self) -> None:
         result = await self.service.get_status("user-1")
         self.assertEqual(result["status"], "none")
         self.assertIsNone(result["cluster_name"])
+
+    async def test_get_status_keeps_ready_when_sky_reports_cluster_up(self) -> None:
+        await self.store.create_vm("user-1", "opc-tenant-abc123", "tok-abc")
+        await self.store.update_status("user-1", "ready")
+        status_proc = _make_proc(0, stdout=json.dumps(
+            [{"name": "opc-tenant-abc123", "status": "UP"}]
+        ).encode())
+        with patch("shutil.which", return_value="/usr/local/bin/sky"), \
+             patch("asyncio.create_subprocess_exec", AsyncMock(return_value=status_proc)):
+            result = await self.service.get_status("user-1")
+        self.assertEqual(result["status"], "ready")
+
+    async def test_get_status_downgrades_ready_to_stopped_when_sky_reports_stopped(self) -> None:
+        await self.store.create_vm("user-1", "opc-tenant-abc123", "tok-abc")
+        await self.store.update_status("user-1", "ready")
+        status_proc = _make_proc(0, stdout=json.dumps(
+            [{"name": "opc-tenant-abc123", "status": "STOPPED"}]
+        ).encode())
+        with patch("shutil.which", return_value="/usr/local/bin/sky"), \
+             patch("asyncio.create_subprocess_exec", AsyncMock(return_value=status_proc)):
+            result = await self.service.get_status("user-1")
+        self.assertEqual(result["status"], "stopped")
+
+    async def test_get_status_downgrades_ready_to_error_when_cluster_missing(self) -> None:
+        await self.store.create_vm("user-1", "opc-tenant-abc123", "tok-abc")
+        await self.store.update_status("user-1", "ready")
+        status_proc = _make_proc(0, stdout=b"[]")
+        with patch("shutil.which", return_value="/usr/local/bin/sky"), \
+             patch("asyncio.create_subprocess_exec", AsyncMock(return_value=status_proc)):
+            result = await self.service.get_status("user-1")
+        self.assertEqual(result["status"], "error")
+        self.assertIsNotNone(result["error_message"])
+
+    async def test_get_status_throttles_liveness_check_within_interval(self) -> None:
+        await self.store.create_vm("user-1", "opc-tenant-abc123", "tok-abc")
+        await self.store.update_status("user-1", "ready")
+        status_proc = _make_proc(0, stdout=json.dumps(
+            [{"name": "opc-tenant-abc123", "status": "UP"}]
+        ).encode())
+        create_subprocess_mock = AsyncMock(return_value=status_proc)
+        with patch("shutil.which", return_value="/usr/local/bin/sky"), \
+             patch("asyncio.create_subprocess_exec", create_subprocess_mock):
+            await self.service.get_status("user-1")
+            await self.service.get_status("user-1")
+        self.assertEqual(create_subprocess_mock.await_count, 1)
+
+    async def test_get_status_leaves_status_untouched_when_sky_status_fails(self) -> None:
+        await self.store.create_vm("user-1", "opc-tenant-abc123", "tok-abc")
+        await self.store.update_status("user-1", "ready")
+        status_proc = _make_proc(1, stdout=b"not json")
+        with patch("shutil.which", return_value="/usr/local/bin/sky"), \
+             patch("asyncio.create_subprocess_exec", AsyncMock(return_value=status_proc)):
+            result = await self.service.get_status("user-1")
+        self.assertEqual(result["status"], "ready")
 
     async def test_recover_from_restart_marks_stale_launching_vm_as_error(self) -> None:
         await self.store.create_vm("user-1", "opc-tenant-abc123", "tok-abc")
