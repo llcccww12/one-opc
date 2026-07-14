@@ -28,6 +28,7 @@ from opc.plugins.office_ui.user_store import UserStore
 from opc.plugins.office_ui.tenant_vm_store import TenantVmStore
 from opc.plugins.office_ui.tenant_vm_service import TenantVmService
 from opc.plugins.office_ui.bind_routes import make_bind_vm_handler, make_vm_status_handler
+from opc.plugins.office_ui.worker_ws import make_worker_ws_handler
 from opc.plugins.office_ui.event_adapter import EventAdapter
 from opc.plugins.office_ui.terminal import server_banner
 from opc.plugins.office_ui.terminal import status as terminal_status
@@ -139,6 +140,20 @@ async def create_app(
     # ── Initialize engine (this starts all OPC layers) ────────────────
     await engine.initialize()
 
+    # ── Wire cross-cutting deps onto the broker (constructed inside
+    # engine.initialize(), but credential_provider/owner_resolver depend on
+    # office_ui-owned stores that only exist here) ─────────────────────
+    async def _stub_credential_provider(user_id: str):
+        # TODO: replace with credential_vault.get_credentials once the
+        # per-user BYOK credential vault (sub-project 3) lands.
+        return None
+
+    engine.external_broker.configure_worker_relay(
+        worker_registry=engine.worker_registry,
+        credential_provider=_stub_credential_provider,
+        owner_resolver=user_store.get_project_owner,
+    )
+
     # ── WSHandler ─────────────────────────────────────────────────────
     ws_handler = WSHandler(engine, agent_store, chat_store, event_adapter, user_store)
 
@@ -202,6 +217,7 @@ async def create_app(
     # Per-user SkyPilot VM binding (must be registered before the SPA catch-all)
     app.router.add_post("/api/vm/bind", make_bind_vm_handler(user_store, tenant_vm_service))
     app.router.add_get("/api/vm/status", make_vm_status_handler(user_store, tenant_vm_service))
+    app.router.add_get("/worker/ws", make_worker_ws_handler(tenant_vm_store, engine.worker_registry))
 
     # SPA: serve static files, fallback to index.html
     if _STATIC_DIR.is_dir():

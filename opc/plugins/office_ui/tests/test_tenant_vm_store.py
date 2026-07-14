@@ -66,6 +66,15 @@ class TenantVmStoreTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(vm1["status"], "ready")
         self.assertEqual(vm2["status"], "stopped")
 
+    async def test_get_user_id_for_auth_token_round_trips(self) -> None:
+        await self.store.create_vm("user-1", "opc-tenant-abc123", "tok-abc")
+        user_id = await self.store.get_user_id_for_auth_token("tok-abc")
+        self.assertEqual(user_id, "user-1")
+
+    async def test_get_user_id_for_auth_token_unknown_returns_none(self) -> None:
+        user_id = await self.store.get_user_id_for_auth_token("bogus")
+        self.assertIsNone(user_id)
+
 
 if __name__ == "__main__":
     unittest.main()

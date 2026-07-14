@@ -84,3 +84,10 @@ class TenantVmStore:
             )
             await self._db.commit()
             return cursor.rowcount
+
+    async def get_user_id_for_auth_token(self, token: str) -> str | None:
+        cursor = await self._db.execute(
+            "SELECT user_id FROM tenant_vms WHERE auth_token = ?", (token,)
+        )
+        row = await cursor.fetchone()
+        return row[0] if row else None

@@ -163,6 +163,7 @@ from opc.layer3_agent.native_agent import NativeAgent
 from opc.layer3_agent.prompt_harness.builder import _final_decider_role_id, _memory_skill_user_facing
 from opc.layer3_agent.adapters.registry import AdapterRegistry
 from opc.layer3_agent.external_broker import ExternalAgentBroker
+from opc.layer3_agent.worker_registry import WorkerConnectionRegistry
 from opc.layer4_tools.registry import ToolRegistry, ToolDefinition
 from opc.layer4_tools.shell import create_shell_tool, create_shell_tools
 from opc.layer4_tools.file_ops import create_file_tools
@@ -369,6 +370,7 @@ class OPCEngine:
 
         # Core infrastructure
         self.event_bus = EventBus()
+        self.worker_registry = WorkerConnectionRegistry()
         self.store: OPCStore | None = store
         self._owns_store = bool(owns_store)
         self._run_startup_reconcile = bool(run_startup_reconcile)
@@ -9404,6 +9406,8 @@ class OPCEngine:
     async def get_latest_pending_checkpoint_for_session(
         self,
         session_id: str | None = None,
+        *,
+        force_resume: bool = False,
     ) -> ExecutionCheckpoint | None:
         if not self.store:
             return None
@@ -9431,6 +9435,12 @@ class OPCEngine:
         active_suspend_checkpoint: ExecutionCheckpoint | None = None
         if runtime_session_id:
             active_suspend_checkpoint = await self.get_active_company_runtime_suspend_checkpoint(runtime_session_id)
+        if active_suspend_checkpoint is not None and force_resume:
+            # An explicit UI "Continue" always means "resume the runtime the
+            # user stopped" — it must not be redirected to answer an unrelated
+            # child work-item gate (e.g. a pending task_user_input question)
+            # that happens to also be pending underneath the same runtime.
+            return await self._ensure_checkpoint_runtime_v2_payload(active_suspend_checkpoint)
         if (
             active_suspend_checkpoint is not None
             and company_parent_session_id
@@ -9689,7 +9699,10 @@ class OPCEngine:
             if not await self._checkpoint_task_still_waiting(checkpoint):
                 return "This request is no longer active."
         else:
-            checkpoint = await self.get_latest_pending_checkpoint_for_session(session_id)
+            checkpoint = await self.get_latest_pending_checkpoint_for_session(
+                session_id,
+                force_resume=self._reply_metadata_requests_force_resume(reply_metadata),
+            )
             if not checkpoint:
                 return None
             if self._checkpoint_awaits_approval_decision(checkpoint):

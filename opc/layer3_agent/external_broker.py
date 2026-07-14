@@ -102,6 +102,17 @@ class ExternalAgentBroker:
         self.task_preparer = task_preparer
         self.communication = communication
         self._llm_config_provider = llm_config_provider
+        self._worker_registry = None
+        self._credential_provider = None
+        self._owner_resolver = None
+
+    def configure_worker_relay(self, *, worker_registry, credential_provider, owner_resolver) -> None:
+        """Wire cross-cutting, office-UI-owned dependencies onto this broker
+        post-construction (they don't exist yet when OPCEngine.initialize()
+        constructs this broker — see server.py's post-init wiring)."""
+        self._worker_registry = worker_registry
+        self._credential_provider = credential_provider
+        self._owner_resolver = owner_resolver
 
     def _apply_llm_config_env(self, env: dict[str, str]) -> None:
         """Inject the currently-configured LLM api_key/api_base into env, in place.
