@@ -23,6 +23,14 @@ def _cluster_name_for(user_id: str) -> str:
     return f"opc-tenant-{user_id[:12]}"
 
 
+def _failure_message(stdout: bytes, stderr: bytes) -> str:
+    # sky's CLI writes most human-readable errors to stdout (rich console
+    # output), not stderr — prefer stderr when non-empty but fall back to
+    # stdout so a real failure is never reported as a blank error message.
+    text = stderr if stderr.strip() else stdout
+    return text.decode("utf-8", errors="replace")[-2000:]
+
+
 class TenantVmService:
     def __init__(self, store: TenantVmStore) -> None:
         self._store = store
@@ -81,7 +89,7 @@ class TenantVmService:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-            _stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=_LAUNCH_TIMEOUT_SECONDS)
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=_LAUNCH_TIMEOUT_SECONDS)
         except asyncio.TimeoutError:
             await self._store.update_status(user_id, "error", "操作超时（sky launch 超过 10 分钟未完成）")
             return
@@ -90,7 +98,7 @@ class TenantVmService:
             return
 
         if proc.returncode != 0:
-            await self._store.update_status(user_id, "error", stderr.decode("utf-8", errors="replace")[-2000:])
+            await self._store.update_status(user_id, "error", _failure_message(stdout, stderr))
             return
 
         await self._verify_and_finalize(user_id, cluster_name, binary)
@@ -107,7 +115,7 @@ class TenantVmService:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-            _stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=_LAUNCH_TIMEOUT_SECONDS)
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=_LAUNCH_TIMEOUT_SECONDS)
         except asyncio.TimeoutError:
             await self._store.update_status(user_id, "error", "操作超时（sky start 超过 10 分钟未完成）")
             return
@@ -116,7 +124,7 @@ class TenantVmService:
             return
 
         if proc.returncode != 0:
-            await self._store.update_status(user_id, "error", stderr.decode("utf-8", errors="replace")[-2000:])
+            await self._store.update_status(user_id, "error", _failure_message(stdout, stderr))
             return
 
         await self._verify_and_finalize(user_id, cluster_name, binary)
@@ -128,7 +136,7 @@ class TenantVmService:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-            _stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=_VERIFY_TIMEOUT_SECONDS)
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=_VERIFY_TIMEOUT_SECONDS)
         except asyncio.TimeoutError:
             await self._store.update_status(user_id, "error", "验证超时: claude --version 未在 60 秒内完成")
             return
@@ -137,7 +145,7 @@ class TenantVmService:
             return
 
         if proc.returncode != 0:
-            message = stderr.decode("utf-8", errors="replace")[-2000:]
+            message = _failure_message(stdout, stderr)
             await self._store.update_status(user_id, "error", f"验证失败: claude --version 执行失败: {message}")
             return
 

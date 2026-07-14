@@ -63,6 +63,19 @@ class TenantVmServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(final["status"], "error")
         self.assertIn("claude: command not found", final["error_message"])
 
+    async def test_bind_reports_error_from_stdout_when_stderr_is_empty(self) -> None:
+        # sky's CLI writes most human-readable errors to stdout (rich console
+        # output), not stderr — a real EACCES npm failure surfaces this way.
+        launch_proc = _make_proc(1, stdout=b"npm error EACCES: permission denied", stderr=b"")
+        with patch("shutil.which", return_value="/usr/local/bin/sky"), \
+             patch("asyncio.create_subprocess_exec", AsyncMock(return_value=launch_proc)):
+            await self.service.bind("user-1")
+            await self.service._tasks["user-1"]
+
+        final = await self.service.get_status("user-1")
+        self.assertEqual(final["status"], "error")
+        self.assertIn("EACCES", final["error_message"])
+
     async def test_bind_reports_error_when_sky_binary_missing(self) -> None:
         with patch("shutil.which", return_value=None):
             await self.service.bind("user-1")
@@ -121,6 +134,7 @@ class TenantVmTaskYamlTests(unittest.TestCase):
             doc = yaml.safe_load(f)
         self.assertIn("setup", doc)
         self.assertIn("@anthropic-ai/claude-code", doc["setup"])
+        self.assertIn("sudo npm install -g @anthropic-ai/claude-code", doc["setup"])
 
 
 if __name__ == "__main__":
