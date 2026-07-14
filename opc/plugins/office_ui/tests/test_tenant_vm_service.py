@@ -73,7 +73,10 @@ class TenantVmServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("SkyPilot", final["error_message"])
 
     async def test_bind_while_already_launching_does_not_start_second_task(self) -> None:
-        with patch.object(TenantVmService, "_start_background") as start_mock:
+        def _close_coro(user_id, coro):
+            coro.close()
+
+        with patch.object(TenantVmService, "_start_background", side_effect=_close_coro) as start_mock:
             await self.service.bind("user-1")
             await self.service.bind("user-1")
         self.assertEqual(start_mock.call_count, 1)
