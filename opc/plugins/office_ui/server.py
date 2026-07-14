@@ -25,6 +25,9 @@ from opc.plugins.office_ui.agent_store import AgentStore
 from opc.plugins.office_ui.chat_store import ChatStore
 from opc.plugins.office_ui.auth_routes import make_login_handler, make_register_handler
 from opc.plugins.office_ui.user_store import UserStore
+from opc.plugins.office_ui.tenant_vm_store import TenantVmStore
+from opc.plugins.office_ui.tenant_vm_service import TenantVmService
+from opc.plugins.office_ui.bind_routes import make_bind_vm_handler, make_vm_status_handler
 from opc.plugins.office_ui.event_adapter import EventAdapter
 from opc.plugins.office_ui.terminal import server_banner
 from opc.plugins.office_ui.terminal import status as terminal_status
@@ -126,6 +129,10 @@ async def create_app(
     user_store = UserStore(db)
     await user_store.initialize()
 
+    tenant_vm_store = TenantVmStore(db)
+    await tenant_vm_store.initialize()
+    tenant_vm_service = TenantVmService(tenant_vm_store)
+
     event_adapter = EventAdapter()
 
     # ── Initialize engine (this starts all OPC layers) ────────────────
@@ -176,6 +183,7 @@ async def create_app(
     app["ws_handler"] = ws_handler
     app["instance_lock"] = instance_lock
     app["user_store"] = user_store
+    app["tenant_vm_service"] = tenant_vm_service
 
     # ── Routes ────────────────────────────────────────────────────────
     app.router.add_get("/ws", ws_handler.handle_ws)
@@ -189,6 +197,10 @@ async def create_app(
     # Account registration/login (must be registered before the SPA catch-all)
     app.router.add_post("/api/register", make_register_handler(user_store))
     app.router.add_post("/api/login", make_login_handler(user_store))
+
+    # Per-user SkyPilot VM binding (must be registered before the SPA catch-all)
+    app.router.add_post("/api/vm/bind", make_bind_vm_handler(user_store, tenant_vm_service))
+    app.router.add_get("/api/vm/status", make_vm_status_handler(user_store, tenant_vm_service))
 
     # SPA: serve static files, fallback to index.html
     if _STATIC_DIR.is_dir():
