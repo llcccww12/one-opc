@@ -1744,6 +1744,38 @@ def project_delete(
     asyncio.run(_run_service_command(project, lambda svc: svc.project.delete(project_id), json_output=json_output))
 
 
+worker_app = typer.Typer(help="Run OpenOPC as a worker on a tenant VM")
+app.add_typer(worker_app, name="worker")
+
+
+@worker_app.command("start")
+def worker_start(
+    control_plane_url: Optional[str] = typer.Option(
+        None, "--control-plane-url", envvar="OPC_CONTROL_PLANE_URL",
+        help="Control plane base URL, e.g. https://opc.example.com",
+    ),
+    token: Optional[str] = typer.Option(
+        None, "--token", envvar="OPC_WORKER_TOKEN", help="This VM's auth token from tenant_vms.auth_token",
+    ),
+    workspace_root: Optional[str] = typer.Option(
+        None, "--workspace-root", envvar="OPC_WORKER_WORKSPACE_ROOT", help="Local directory for project workspaces",
+    ),
+):
+    """Connect outbound to the control plane and execute dispatched tasks locally."""
+    from opc.layer3_agent.worker_runtime import WorkerRuntime
+
+    if not control_plane_url or not token:
+        console.print(
+            "[error]Missing --control-plane-url/--token "
+            "(or OPC_CONTROL_PLANE_URL/OPC_WORKER_TOKEN env vars)[/error]"
+        )
+        raise typer.Exit(code=1)
+
+    root = Path(workspace_root or (Path.home() / "opc_workspace"))
+    root.mkdir(parents=True, exist_ok=True)
+    asyncio.run(WorkerRuntime(control_plane_url, token, root).run_forever())
+
+
 user_app = typer.Typer(help="Manage OpenOPC user accounts (invite codes)")
 app.add_typer(user_app, name="user")
 
