@@ -8,15 +8,23 @@ service is scoped to "the caller's own VM" and performs write operations
 from __future__ import annotations
 
 import asyncio
+import json
 import secrets
 import shutil
+import time
 from pathlib import Path
 
 from opc.plugins.office_ui.tenant_vm_store import TenantVmStore
 
 _LAUNCH_TIMEOUT_SECONDS = 600
 _VERIFY_TIMEOUT_SECONDS = 60
+_LIVENESS_CHECK_TIMEOUT_SECONDS = 20
+_LIVENESS_CHECK_INTERVAL_SECONDS = 30
 _TASK_YAML = Path(__file__).parent / "skypilot" / "tenant_vm.yaml"
+
+
+class _LivenessUnknown(Exception):
+    """sky status could not be queried; caller must leave the stored status untouched."""
 
 
 def _cluster_name_for(user_id: str) -> str:
@@ -32,19 +40,77 @@ def _failure_message(stdout: bytes, stderr: bytes) -> str:
 
 
 class TenantVmService:
-    def __init__(self, store: TenantVmStore) -> None:
+    def __init__(self, store: TenantVmStore, control_plane_url: str = "") -> None:
         self._store = store
+        self._control_plane_url = control_plane_url
         self._tasks: dict[str, asyncio.Task] = {}
+        self._last_liveness_check: dict[str, float] = {}
 
     async def get_status(self, user_id: str) -> dict:
         vm = await self._store.get_vm(user_id)
         if vm is None:
             return {"status": "none", "cluster_name": None, "error_message": None}
+        if vm["status"] in ("ready", "stopped"):
+            vm = await self._reconcile_liveness(user_id, vm)
         return {
             "status": vm["status"],
             "cluster_name": vm["cluster_name"],
             "error_message": vm["error_message"],
         }
+
+    async def _reconcile_liveness(self, user_id: str, vm: dict) -> dict:
+        last_checked = self._last_liveness_check.get(user_id, 0.0)
+        now = time.monotonic()
+        if now - last_checked < _LIVENESS_CHECK_INTERVAL_SECONDS:
+            return vm
+        self._last_liveness_check[user_id] = now
+
+        try:
+            sky_state = await self._check_cluster_state(vm["cluster_name"])
+        except _LivenessUnknown:
+            return vm
+
+        if sky_state == "UP":
+            new_status = "ready"
+        elif sky_state == "STOPPED":
+            new_status = "stopped"
+        else:
+            new_status = "error"
+
+        if new_status == vm["status"]:
+            return vm
+
+        message = "云主机在 SkyPilot 侧已不存在，请重新创建" if new_status == "error" else None
+        await self._store.update_status(user_id, new_status, message)
+        return await self._store.get_vm(user_id)
+
+    async def _check_cluster_state(self, cluster_name: str) -> str | None:
+        binary = shutil.which("sky")
+        if not binary:
+            raise _LivenessUnknown("sky binary not found")
+
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                binary, "status", "-o", "json",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, _stderr = await asyncio.wait_for(proc.communicate(), timeout=_LIVENESS_CHECK_TIMEOUT_SECONDS)
+        except (asyncio.TimeoutError, OSError) as exc:
+            raise _LivenessUnknown(str(exc)) from exc
+
+        try:
+            clusters = json.loads(stdout.decode("utf-8"))
+        except (ValueError, UnicodeDecodeError) as exc:
+            raise _LivenessUnknown(str(exc)) from exc
+
+        if not isinstance(clusters, list):
+            raise _LivenessUnknown("unexpected sky status output")
+
+        for entry in clusters:
+            if isinstance(entry, dict) and entry.get("name") == cluster_name:
+                return entry.get("status")
+        return None
 
     async def recover_from_restart(self) -> None:
         """Reset any 'launching' rows left behind by a prior process (crash
@@ -88,9 +154,15 @@ class TenantVmService:
             await self._store.update_status(user_id, "error", "未检测到 SkyPilot（sky 命令不存在）")
             return
 
+        vm = await self._store.get_vm(user_id)
+        auth_token = vm["auth_token"]
+
         try:
             proc = await asyncio.create_subprocess_exec(
-                binary, "launch", "-c", cluster_name, str(_TASK_YAML), "-y",
+                binary, "launch", "-c", cluster_name, str(_TASK_YAML),
+                "-e", f"OPC_CONTROL_PLANE_URL={self._control_plane_url}",
+                "-e", f"OPC_WORKER_TOKEN={auth_token}",
+                "-y",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
@@ -114,9 +186,15 @@ class TenantVmService:
             await self._store.update_status(user_id, "error", "未检测到 SkyPilot（sky 命令不存在）")
             return
 
+        vm = await self._store.get_vm(user_id)
+        auth_token = vm["auth_token"]
+
         try:
             proc = await asyncio.create_subprocess_exec(
-                binary, "start", cluster_name, "-y",
+                binary, "start", cluster_name,
+                "-e", f"OPC_CONTROL_PLANE_URL={self._control_plane_url}",
+                "-e", f"OPC_WORKER_TOKEN={auth_token}",
+                "-y",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )

@@ -132,7 +132,7 @@ async def create_app(
 
     tenant_vm_store = TenantVmStore(db)
     await tenant_vm_store.initialize()
-    tenant_vm_service = TenantVmService(tenant_vm_store)
+    tenant_vm_service = TenantVmService(tenant_vm_store, control_plane_url=os.environ.get("OPC_CONTROL_PLANE_URL", ""))
     await tenant_vm_service.recover_from_restart()
 
     event_adapter = EventAdapter()
