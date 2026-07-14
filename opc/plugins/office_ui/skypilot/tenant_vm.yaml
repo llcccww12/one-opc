@@ -1,0 +1,12 @@
+resources:
+  cloud: aws
+  cpus: 2+
+  disk_size: 50
+
+setup: |
+  curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+  sudo apt-get install -y nodejs
+  npm install -g @anthropic-ai/claude-code
+
+run: |
+  echo "tenant VM ready"
