@@ -3,15 +3,29 @@ resources:
   cpus: 2+
   disk_size: 50
 
+workdir: /Users/laiweichao/Documents/OpenOPC-main
+
 setup: |
   curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
   sudo apt-get install -y nodejs
   sudo npm install -g @anthropic-ai/claude-code
-  pip install openopc  # or: pip install -e /path/to/OpenOPC-main if installing from source
+  # NOTE: "openopc" on PyPI is an unrelated third-party OPC-DA client library,
+  # not this project (package name here is "opc", repo not yet published).
+  # workdir (above) syncs this source tree (honoring .gitignore) to the VM's
+  # ~/sky_workdir; install from there instead.
+  python3 -m pip install -e . --break-system-packages \
+    || python3 -m pip install -e .
 
 envs:
   OPC_CONTROL_PLANE_URL: ""
   OPC_WORKER_TOKEN: ""
 
 run: |
-  opc worker start --control-plane-url "$OPC_CONTROL_PLANE_URL" --token "$OPC_WORKER_TOKEN"
+  # Backgrounded and disowned so this job finishes immediately, leaving the
+  # cluster's job queue free for later `sky exec` calls (health checks,
+  # worker restarts) instead of being permanently occupied by opc worker
+  # start's infinite run_forever() reconnect loop.
+  pkill -f "opc worker start" 2>/dev/null || true
+  nohup opc worker start --control-plane-url "$OPC_CONTROL_PLANE_URL" --token "$OPC_WORKER_TOKEN" \
+    > ~/opc_worker.log 2>&1 &
+  disown

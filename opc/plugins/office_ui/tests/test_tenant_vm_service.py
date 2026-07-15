@@ -98,7 +98,10 @@ class TenantVmServiceTests(unittest.IsolatedAsyncioTestCase):
             await self.service.bind("user-1")
         self.assertEqual(start_mock.call_count, 1)
 
-    async def test_bind_on_stopped_vm_calls_sky_start_not_launch(self) -> None:
+    async def test_bind_on_stopped_vm_calls_sky_launch_to_resume(self) -> None:
+        # sky start alone can't re-run the task's run: block (no env vars,
+        # doesn't restart opc worker) — resuming a stopped VM goes through
+        # sky launch -c <existing cluster> just like a fresh bind.
         await self.store.create_vm("user-1", "opc-tenant-abc123", "tok-abc")
         await self.store.update_status("user-1", "stopped")
         start_proc = _make_proc(0)
@@ -113,7 +116,9 @@ class TenantVmServiceTests(unittest.IsolatedAsyncioTestCase):
             await self.service._tasks["user-1"]
 
             args, _kwargs = create_subprocess_mock.await_args_list[0]
-            self.assertIn("start", args)
+            self.assertIn("launch", args)
+            self.assertIn("-c", args)
+            self.assertIn("--env", args)
             final = await self.service.get_status("user-1")
 
         self.assertEqual(final["status"], "ready")

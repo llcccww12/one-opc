@@ -160,8 +160,8 @@ class TenantVmService:
         try:
             proc = await asyncio.create_subprocess_exec(
                 binary, "launch", "-c", cluster_name, str(_TASK_YAML),
-                "-e", f"OPC_CONTROL_PLANE_URL={self._control_plane_url}",
-                "-e", f"OPC_WORKER_TOKEN={auth_token}",
+                "--env", f"OPC_CONTROL_PLANE_URL={self._control_plane_url}",
+                "--env", f"OPC_WORKER_TOKEN={auth_token}",
                 "-y",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
@@ -190,10 +190,16 @@ class TenantVmService:
         auth_token = vm["auth_token"]
 
         try:
+            # `sky start` merely powers the VM back on — it does not accept
+            # env vars and does not re-run the task's `run:` block, so the
+            # opc worker process from before the stop would never come back.
+            # `sky launch -c <existing cluster>` restarts a stopped cluster
+            # AND re-runs setup/run (idempotent — setup mostly no-ops via
+            # "already satisfied"), which is what's actually needed here.
             proc = await asyncio.create_subprocess_exec(
-                binary, "start", cluster_name,
-                "-e", f"OPC_CONTROL_PLANE_URL={self._control_plane_url}",
-                "-e", f"OPC_WORKER_TOKEN={auth_token}",
+                binary, "launch", "-c", cluster_name, str(_TASK_YAML),
+                "--env", f"OPC_CONTROL_PLANE_URL={self._control_plane_url}",
+                "--env", f"OPC_WORKER_TOKEN={auth_token}",
                 "-y",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
