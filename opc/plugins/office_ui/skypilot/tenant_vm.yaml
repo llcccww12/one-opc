@@ -3,16 +3,15 @@ resources:
   cpus: 2+
   disk_size: 50
 
-workdir: /Users/laiweichao/Documents/OpenOPC-main
-
 setup: |
   curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
   sudo apt-get install -y nodejs
   sudo npm install -g @anthropic-ai/claude-code
   # NOTE: "openopc" on PyPI is an unrelated third-party OPC-DA client library,
   # not this project (package name here is "opc", repo not yet published).
-  # workdir (above) syncs this source tree (honoring .gitignore) to the VM's
-  # ~/sky_workdir; install from there instead.
+  # TenantVmService passes this repo's root via `sky launch --workdir <path>`
+  # (not a static `workdir:` field here, since that would hardcode one
+  # operator's local path into a shared config file) — install from there.
   python3 -m pip install -e . --break-system-packages \
     || python3 -m pip install -e .
 

@@ -21,6 +21,9 @@ _VERIFY_TIMEOUT_SECONDS = 60
 _LIVENESS_CHECK_TIMEOUT_SECONDS = 20
 _LIVENESS_CHECK_INTERVAL_SECONDS = 30
 _TASK_YAML = Path(__file__).parent / "skypilot" / "tenant_vm.yaml"
+# Passed to `sky launch --workdir` so the VM syncs this checkout's source tree
+# without hardcoding one operator's local path into the shared tenant_vm.yaml.
+_REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
 class _LivenessUnknown(Exception):
@@ -160,6 +163,7 @@ class TenantVmService:
         try:
             proc = await asyncio.create_subprocess_exec(
                 binary, "launch", "-c", cluster_name, str(_TASK_YAML),
+                "--workdir", str(_REPO_ROOT),
                 "--env", f"OPC_CONTROL_PLANE_URL={self._control_plane_url}",
                 "--env", f"OPC_WORKER_TOKEN={auth_token}",
                 "-y",
@@ -198,6 +202,7 @@ class TenantVmService:
             # "already satisfied"), which is what's actually needed here.
             proc = await asyncio.create_subprocess_exec(
                 binary, "launch", "-c", cluster_name, str(_TASK_YAML),
+                "--workdir", str(_REPO_ROOT),
                 "--env", f"OPC_CONTROL_PLANE_URL={self._control_plane_url}",
                 "--env", f"OPC_WORKER_TOKEN={auth_token}",
                 "-y",

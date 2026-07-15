@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, patch
 
 import aiosqlite
 
-from opc.plugins.office_ui.tenant_vm_service import TenantVmService, _cluster_name_for
+from opc.plugins.office_ui.tenant_vm_service import TenantVmService, _cluster_name_for, _REPO_ROOT
 from opc.plugins.office_ui.tenant_vm_store import TenantVmStore
 
 
@@ -43,6 +43,25 @@ class TenantVmServiceTests(unittest.IsolatedAsyncioTestCase):
             final = await self.service.get_status("user-1")
 
         self.assertEqual(final["status"], "ready")
+
+    async def test_bind_new_user_passes_repo_root_as_workdir(self) -> None:
+        # tenant_vm.yaml deliberately has no static `workdir:` field (that
+        # would hardcode one operator's local path into a shared config
+        # file) — the repo root must be passed via --workdir instead.
+        launch_proc = _make_proc(0)
+        verify_proc = _make_proc(0, stdout=b"1.0.0")
+        status_proc = _make_proc(0, stdout=json.dumps(
+            [{"name": _cluster_name_for("user-1"), "status": "UP"}]
+        ).encode())
+        create_subprocess_mock = AsyncMock(side_effect=[launch_proc, verify_proc, status_proc])
+        with patch("shutil.which", return_value="/usr/local/bin/sky"), \
+             patch("asyncio.create_subprocess_exec", create_subprocess_mock):
+            await self.service.bind("user-1")
+            await self.service._tasks["user-1"]
+
+        args, _kwargs = create_subprocess_mock.await_args_list[0]
+        workdir_index = args.index("--workdir")
+        self.assertEqual(args[workdir_index + 1], str(_REPO_ROOT))
 
     async def test_bind_reports_error_when_sky_launch_fails(self) -> None:
         launch_proc = _make_proc(1, stderr=b"quota exceeded")
