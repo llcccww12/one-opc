@@ -83,6 +83,30 @@ class FileDownloadRouteTests(AioHTTPTestCase):
         self.assertEqual(body, b"hello world")
         self.assertIn("notes.txt", resp.headers.get("Content-Disposition", ""))
 
+    async def test_download_escapes_quotes_in_filename(self) -> None:
+        connection = AsyncMock()
+        self.registry.register(self.user_id, connection)
+
+        async def _respond() -> None:
+            await asyncio.sleep(0.01)
+            sent_message = connection.send_json.await_args.args[0]
+            await self.registry.handle_worker_message({
+                "type": "file_content",
+                "request_id": sent_message["request_id"],
+                "content_base64": base64.b64encode(b"hello world").decode("ascii"),
+            })
+
+        asyncio.ensure_future(_respond())
+        resp = await self.client.get(
+            '/api/vm/files/download?project_id=demo&path=weird%22name.txt',
+            headers={"Authorization": f"Bearer {self.token}"},
+        )
+        self.assertEqual(resp.status, 200)
+        self.assertEqual(
+            resp.headers.get("Content-Disposition"),
+            'attachment; filename="weird\\"name.txt"',
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

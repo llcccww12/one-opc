@@ -52,9 +52,11 @@ def make_file_download_handler(user_store: UserStore, worker_registry: WorkerCon
 
         content = base64.b64decode(response["content_base64"])
         filename = path.rsplit("/", 1)[-1] or "download"
+        # RFC 6266 quoted-string escaping: backslash first, then quote.
+        escaped_filename = filename.replace("\\", "\\\\").replace('"', '\\"')
         return aiohttp.web.Response(
             body=content,
-            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+            headers={"Content-Disposition": f'attachment; filename="{escaped_filename}"'},
         )
 
     return _handle
