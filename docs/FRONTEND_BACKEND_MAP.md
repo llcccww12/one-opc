@@ -69,6 +69,16 @@
 
 ---
 
+## 二十一、VM 工作区文件浏览器
+
+| 功能 | 前端组件 | WS 请求类型 | 后端 Handler | WS 响应类型 |
+|------|----------|-------------|--------------|-------------|
+| 列目录 | FilesPanel | `list_workspace_files` | `_handle_list_workspace_files` | 同类型消息 |
+| 删除文件/文件夹 | FilesPanel | `delete_workspace_file` | `_handle_delete_workspace_file` | 同类型消息 |
+| 下载文件 | FilesPanel | `GET /api/vm/files/download`（REST，不走 WS） | `make_file_download_handler` | 文件流 |
+
+---
+
 ## 二、会话管理（Session）
 
 | 功能 | 前端组件 | WS 请求类型 | 后端 Handler | 后端 Service | WS 响应类型 |

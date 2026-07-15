@@ -10,6 +10,7 @@ import inspect
 import json
 import math
 import re
+import secrets
 import time
 import uuid
 from datetime import datetime
@@ -428,6 +429,8 @@ _OWNERSHIP_CHECKED_MESSAGE_TYPES = frozenset({
     "comms_read_message",
     "switch_project",
     "delete_project",
+    "list_workspace_files",
+    "delete_workspace_file",
 })
 
 
@@ -9165,6 +9168,62 @@ class WSHandler:
         result = await self._ensure_office_services().nodes.list_nodes()
         await self._safe_send_json(ws, {"type": "list_nodes", "payload": {"ok": True, **result.payload}})
 
+    async def _handle_list_workspace_files(self, ws: Any, data: dict) -> None:
+        project_id = str(data.get("project_id") or "")
+        owner_user_id = await self._user_store.get_project_owner(project_id) if self._user_store else None
+        if not owner_user_id or not self.engine.worker_registry.is_connected(owner_user_id):
+            await self._safe_send_json(
+                ws, {"type": "list_workspace_files", "payload": {"ok": False, "error": "worker_not_connected"}}
+            )
+            return
+
+        request_id = secrets.token_hex(8)
+        response = await self.engine.worker_registry.dispatch_request(
+            owner_user_id,
+            request_id,
+            {"type": "list_dir", "request_id": request_id, "project_id": project_id, "path": str(data.get("path") or "")},
+            timeout_seconds=30,
+        )
+        if response is None:
+            await self._safe_send_json(
+                ws, {"type": "list_workspace_files", "payload": {"ok": False, "error": "timeout"}}
+            )
+            return
+        if response.get("error"):
+            await self._safe_send_json(
+                ws, {"type": "list_workspace_files", "payload": {"ok": False, "error": response["error"]}}
+            )
+            return
+        await self._safe_send_json(
+            ws, {"type": "list_workspace_files", "payload": {"ok": True, "entries": response.get("entries", [])}}
+        )
+
+    async def _handle_delete_workspace_file(self, ws: Any, data: dict) -> None:
+        project_id = str(data.get("project_id") or "")
+        owner_user_id = await self._user_store.get_project_owner(project_id) if self._user_store else None
+        if not owner_user_id or not self.engine.worker_registry.is_connected(owner_user_id):
+            await self._safe_send_json(
+                ws, {"type": "delete_workspace_file", "payload": {"ok": False, "error": "worker_not_connected"}}
+            )
+            return
+
+        request_id = secrets.token_hex(8)
+        response = await self.engine.worker_registry.dispatch_request(
+            owner_user_id,
+            request_id,
+            {"type": "delete_file", "request_id": request_id, "project_id": project_id, "path": str(data.get("path") or "")},
+            timeout_seconds=30,
+        )
+        if response is None:
+            await self._safe_send_json(
+                ws, {"type": "delete_workspace_file", "payload": {"ok": False, "error": "timeout"}}
+            )
+            return
+        await self._safe_send_json(
+            ws,
+            {"type": "delete_workspace_file", "payload": {"ok": bool(response.get("ok")), "error": response.get("error")}},
+        )
+
     async def _handle_switch_project(self, ws: Any, data: dict) -> None:
         """Switch the active project view without rebinding in-flight runtimes."""
         new_id = data.get("project_id", "").strip()
@@ -10024,6 +10083,8 @@ class WSHandler:
         "get_vm_credentials":    _handle_get_vm_credentials,
         "update_vm_credentials": _handle_update_vm_credentials,
         "list_nodes":          _handle_list_nodes,
+        "list_workspace_files":   _handle_list_workspace_files,
+        "delete_workspace_file":  _handle_delete_workspace_file,
         "create_project":      _handle_create_project,
         "delete_project":      _handle_delete_project,
         "switch_project":      _handle_switch_project,
