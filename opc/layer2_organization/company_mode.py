@@ -7126,6 +7126,17 @@ class CompanyWorkItemExecutor:
                     metadata_updates=child_metadata_updates,
                 )
                 child_phase = next_phase
+                if next_phase == Phase.AWAITING_HUMAN:
+                    try:
+                        await self._emit_runtime_signal("review_required", {
+                            "work_item_id": target_work_item_id,
+                            "title": str(getattr(child_item, "title", "") or ""),
+                            "role_id": str(getattr(child_item, "role_id", "") or ""),
+                            "project_id": str(getattr(review_task, "project_id", "") or ""),
+                            "escalation_reason": escalation_reason or "",
+                        })
+                    except Exception:
+                        logger.debug("review_required event emission failed (non-fatal)")
             except Exception:
                 logger.opt(exception=True).warning(
                     "_finalize_review_work_item: failed to apply verdict to child work item"
