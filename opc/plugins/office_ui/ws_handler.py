@@ -1583,6 +1583,11 @@ class WSHandler:
                     "type": "child_session_created",
                     "payload": payload,
                 })
+            elif ve.get("type") == "review_required":
+                await self.broadcast({
+                    "type": "review_required",
+                    "payload": dict(ve.get("data", {}) or {}),
+                })
             else:
                 if event.event_type == "runtime_event":
                     ve = await self._canonicalize_runtime_visual_event(ve, engine=engine)
@@ -10185,7 +10190,73 @@ class WSHandler:
         except ServiceError as exc:
             await self._send_service_error(ws, exc, action="recovery_action")
 
+    async def _handle_review_decision(self, ws: Any, data: dict) -> None:
+        """Handle human review decision for a work item in AWAITING_HUMAN phase."""
+        work_item_id = str(data.get("work_item_id") or "").strip()
+        decision = str(data.get("decision") or "").strip()
+        feedback = str(data.get("feedback") or "").strip()
+
+        if not work_item_id or decision not in ("approve", "reject", "rework"):
+            await self._send_ack(ws, ok=False, error="review_decision requires work_item_id and decision (approve/reject/rework)")
+            return
+
+        try:
+            engine, project_id = await self._engine_for_request(data)
+            store = getattr(engine, "store", None)
+            if not store:
+                raise ServiceError("store_not_ready", "store not ready")
+
+            work_item = await store.get_delegation_work_item(work_item_id)
+            if work_item is None:
+                raise ServiceError("work_item_not_found", f"work item {work_item_id} not found", {"work_item_id": work_item_id})
+
+            from opc.layer2_organization.phase import Phase, validate_transition
+            current_phase = getattr(work_item, "phase", None)
+            if not isinstance(current_phase, Phase):
+                current_phase = Phase(str(current_phase or Phase.READY.value))
+            if current_phase not in (Phase.AWAITING_HUMAN, Phase.AWAITING_MANAGER_REVIEW):
+                raise ServiceError(
+                    "invalid_phase",
+                    f"work item is in phase {getattr(current_phase, 'value', current_phase)}, not awaiting review",
+                    {"current_phase": getattr(current_phase, "value", str(current_phase))},
+                )
+
+            if decision == "approve":
+                target_phase = Phase.APPROVED
+                metadata_updates: dict[str, Any] = {"human_review_decision": "approve"}
+            elif decision == "reject":
+                target_phase = Phase.FAILED
+                metadata_updates = {"human_review_decision": "reject"}
+            else:
+                target_phase = Phase.READY_FOR_REWORK
+                metadata_updates = {"human_review_decision": "rework"}
+                if feedback:
+                    metadata_updates["rework_feedback"] = feedback
+
+            validate_transition(current_phase, target_phase)
+            await store.update_delegation_work_item(
+                work_item_id,
+                phase=target_phase,
+                blocked_reason="" if decision == "approve" else (feedback or None),
+                metadata_updates=metadata_updates,
+            )
+
+            await self.broadcast({"type": "board_task_status_changed", "payload": {
+                "project_id": project_id,
+                "work_item_id": work_item_id,
+                "phase": target_phase.value,
+                "decision": decision,
+            }})
+
+            await self._send_ack(ws, ok=True, action="review_decision", work_item_id=work_item_id, decision=decision, new_phase=target_phase.value)
+        except ServiceError as exc:
+            await self._send_service_error(ws, exc, action="review_decision")
+        except Exception as exc:
+            logger.warning(f"Failed to handle review decision: {exc}")
+            await self._send_ack(ws, ok=False, error=str(exc))
+
     # Register handlers defined after _HANDLERS class-level dict
     _HANDLERS["recovery_action"] = _handle_recovery_action
     _HANDLERS["comms_state"] = _handle_comms_state
     _HANDLERS["comms_read_message"] = _handle_comms_read_message
+    _HANDLERS["review_decision"] = _handle_review_decision
