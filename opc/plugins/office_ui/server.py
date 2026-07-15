@@ -30,6 +30,7 @@ from opc.plugins.office_ui.tenant_vm_store import TenantVmStore
 from opc.plugins.office_ui.tenant_vm_service import TenantVmService
 from opc.plugins.office_ui.bind_routes import make_bind_vm_handler, make_vm_status_handler
 from opc.plugins.office_ui.worker_ws import make_worker_ws_handler
+from opc.plugins.office_ui.file_download_routes import make_file_download_handler
 from opc.plugins.office_ui.event_adapter import EventAdapter
 from opc.plugins.office_ui.terminal import server_banner
 from opc.plugins.office_ui.terminal import status as terminal_status
@@ -217,6 +218,9 @@ async def create_app(
     app.router.add_post("/api/vm/bind", make_bind_vm_handler(user_store, tenant_vm_service))
     app.router.add_get("/api/vm/status", make_vm_status_handler(user_store, tenant_vm_service))
     app.router.add_get("/worker/ws", make_worker_ws_handler(tenant_vm_store, engine.worker_registry))
+    app.router.add_get(
+        "/api/vm/files/download", make_file_download_handler(user_store, engine.worker_registry)
+    )
 
     # SPA: serve static files, fallback to index.html
     if _STATIC_DIR.is_dir():
