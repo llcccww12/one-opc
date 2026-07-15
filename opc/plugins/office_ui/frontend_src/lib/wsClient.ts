@@ -64,6 +64,8 @@ interface SocketHandlers {
   onGetVmCredentials?: (payload: { ok: boolean; api_key_set: boolean; api_base: string }) => void
   onUpdateVmCredentials?: (payload: { ok: boolean; api_key_set?: boolean; api_base?: string; error?: string }) => void
   onListNodes?: (payload: { available: boolean; clusters: Array<{ name: string; status: string; region: string; instance_type: string; price_per_hour: number | null; runtime_seconds: number | null }> }) => void
+  onListWorkspaceFiles?: (payload: { ok: boolean; entries?: Array<{ name: string; is_dir: boolean; size: number; mtime: number }>; error?: string }) => void
+  onDeleteWorkspaceFile?: (payload: { ok: boolean; error?: string }) => void
   onCommsState?: (payload: CommsStatePayload) => void
   onCommsMessage?: (payload: CommsMessagePayload) => void
 }
@@ -178,6 +180,8 @@ const PROJECT_SCOPED_MESSAGE_TYPES = new Set([
   'recovery_action',
   'comms_state',
   'comms_read_message',
+  'list_workspace_files',
+  'delete_workspace_file',
 ])
 
 export class VisualSocketClient {
@@ -657,6 +661,14 @@ export class VisualSocketClient {
     this.send({ type: 'list_nodes' })
   }
 
+  listWorkspaceFiles(projectId: string, path: string): void {
+    this.send({ type: 'list_workspace_files', project_id: projectId, path })
+  }
+
+  deleteWorkspaceFile(projectId: string, path: string): void {
+    this.send({ type: 'delete_workspace_file', project_id: projectId, path })
+  }
+
   recoveryAction(projectId: string, action: 'resume' | 'cancel' | 'scan', parentTaskId?: string): void {
     const pid = this.requireProjectId(projectId, 'recovery_action')
     this.send({ type: 'recovery_action', project_id: pid, action, parent_task_id: parentTaskId })
@@ -870,6 +882,12 @@ export class VisualSocketClient {
         break
       case 'list_nodes':
         this.handlers.onListNodes?.(parsed.payload as { available: boolean; clusters: any[] })
+        break
+      case 'list_workspace_files':
+        this.handlers.onListWorkspaceFiles?.(parsed.payload as { ok: boolean; entries?: any[]; error?: string })
+        break
+      case 'delete_workspace_file':
+        this.handlers.onDeleteWorkspaceFile?.(parsed.payload as { ok: boolean; error?: string })
         break
       case 'pong':
         this.handlePong()

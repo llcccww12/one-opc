@@ -16,6 +16,7 @@ import { HelpPanel } from './help/HelpPanel'
 import type { AgentInfo, EmployeeDetailPayload, OrgCreateMemberInput, OrgSavedCreatePayload, OrgEmployee, OrgInfoPayload, OrgRole, ReorgProposalInfo, SavedOrgSummary, SocketStatus, TalentTemplate, VisualEvent, VisualSnapshot } from './types/visual'
 import { useBoardStore, type BoardStoreState } from './kanban/BoardStore'
 import { WorkspacePage } from './workspace/WorkspacePage'
+import type { WorkspaceFileEntry } from './workspace/FilesPanel'
 import { useChatStore, type ChatStoreState } from './chat/ChatStore'
 import { useSessionStore, type SessionStoreState } from './stores/SessionStore'
 import { useProjectStore, type ProjectStoreState } from './stores/ProjectStore'
@@ -518,6 +519,13 @@ export default function App() {
   const [vmCredentials, setVmCredentials] = useState<{ api_key_set: boolean; api_base: string } | null>(null)
   const [vmCredentialsSaveMessage, setVmCredentialsSaveMessage] = useState('')
   const [nodesData, setNodesData] = useState<{ available: boolean; clusters: NodeCluster[] } | null>(null)
+  const [filesCurrentPath, setFilesCurrentPath] = useState('')
+  const [filesEntries, setFilesEntries] = useState<WorkspaceFileEntry[] | null>(null)
+  const [filesError, setFilesError] = useState<string | null>(null)
+  const filesCurrentPathRef = useRef('')
+  useEffect(() => {
+    filesCurrentPathRef.current = filesCurrentPath
+  }, [filesCurrentPath])
   const requestLlmConfig = useCallback(() => { clientRef.current?.getLlmConfig() }, [])
   const saveLlmConfig = useCallback((patch: { default_model?: string; api_base?: string; api_key?: string }) => { clientRef.current?.updateLlmConfig(patch) }, [])
   const requestVmCredentials = useCallback(() => { clientRef.current?.getVmCredentials() }, [])
@@ -1682,6 +1690,21 @@ export default function App() {
       onListNodes: (payload) => {
         setNodesData(payload)
       },
+      onListWorkspaceFiles: (payload) => {
+        if (payload.ok) {
+          setFilesEntries(payload.entries ?? [])
+          setFilesError(null)
+        } else {
+          setFilesError(payload.error || 'Failed to list files')
+        }
+      },
+      onDeleteWorkspaceFile: (payload) => {
+        if (payload.ok) {
+          clientRef.current?.listWorkspaceFiles(getActiveProjectId(), filesCurrentPathRef.current)
+        } else {
+          setFilesError(payload.error || 'Delete failed')
+        }
+      },
       onOrgInfo: (payload) => {
         const normalized = normalizeOrgInfoPayload(payload)
         setOrgInfoData(normalized)
@@ -2426,6 +2449,17 @@ export default function App() {
             clientRef.current?.commsState(getActiveProjectId(), scopedOpts)
           }}
           onCommsReadMessage={(path) => clientRef.current?.commsReadMessage(getActiveProjectId(), path)}
+          filesCurrentPath={filesCurrentPath}
+          filesEntries={filesEntries}
+          filesError={filesError}
+          onFilesNavigate={(path) => { setFilesCurrentPath(path); clientRef.current?.listWorkspaceFiles(getActiveProjectId(), path) }}
+          onFilesRefresh={() => clientRef.current?.listWorkspaceFiles(getActiveProjectId(), filesCurrentPath)}
+          onFilesDelete={(name) => clientRef.current?.deleteWorkspaceFile(getActiveProjectId(), filesCurrentPath ? `${filesCurrentPath}/${name}` : name)}
+          filesDownloadUrlFor={(name) => {
+            const fullPath = filesCurrentPath ? `${filesCurrentPath}/${name}` : name
+            const token = getStoredToken() ?? ''
+            return `/api/vm/files/download?project_id=${encodeURIComponent(getActiveProjectId())}&path=${encodeURIComponent(fullPath)}&token=${encodeURIComponent(token)}`
+          }}
           onRunTask={(taskId, title, desc, mode, profile) => {
             clientRef.current?.send({ type: 'run_task', project_id: getActiveProjectId(), task_id: taskId, title, description: desc, mode, profile })
           }}

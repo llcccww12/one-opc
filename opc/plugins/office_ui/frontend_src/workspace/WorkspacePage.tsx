@@ -20,6 +20,7 @@ import {
 import { getRuntimeOrgView } from '../lib/runtimeOrg'
 import { getLinkedRuntimeTaskId } from '../lib/workItemRuntimeIds'
 import { ContextPanel } from './ContextPanel'
+import type { WorkspaceFileEntry } from './FilesPanel'
 import { useResizePanel } from './useResizePanel'
 
 type ActiveView =
@@ -263,6 +264,13 @@ interface WorkspacePageProps {
   activeSavedOrg?: string | null
   onSavedOrgsList?: () => void
   onSavedOrgLoad?: (name: string) => void
+  filesCurrentPath?: string
+  filesEntries?: WorkspaceFileEntry[] | null
+  filesError?: string | null
+  onFilesNavigate?: (path: string) => void
+  onFilesRefresh?: () => void
+  onFilesDelete?: (name: string) => void
+  filesDownloadUrlFor?: (name: string) => string
 }
 
 export function WorkspacePage({
@@ -308,6 +316,13 @@ export function WorkspacePage({
   activeSavedOrg,
   onSavedOrgsList,
   onSavedOrgLoad,
+  filesCurrentPath,
+  filesEntries,
+  filesError,
+  onFilesNavigate,
+  onFilesRefresh,
+  onFilesDelete,
+  filesDownloadUrlFor,
 }: WorkspacePageProps) {
   const { sessions, activeSessionId, activeSession } = sessionStore
 
@@ -360,7 +375,7 @@ export function WorkspacePage({
   useEffect(() => {
     onBoardUnreadChange?.(boardUnread)
   }, [boardUnread, onBoardUnreadChange])
-  const [panelTab, setPanelTab] = useState<'chat' | 'agents' | 'info' | 'comms' | 'team'>('chat')
+  const [panelTab, setPanelTab] = useState<'chat' | 'agents' | 'info' | 'comms' | 'team' | 'files'>('chat')
   const [childDetailTaskId, setChildDetailTaskId] = useState<string | null>(null)
   const [activeView, setActiveView] = useState<ActiveView>({ kind: 'activity' })
   const [openSessionIds, setOpenSessionIds] = useState<string[]>([])
@@ -629,7 +644,10 @@ export function WorkspacePage({
     if (panelTab === 'team' && !canShowTeamTab) {
       setPanelTab('chat')
     }
-  }, [panelTab, canShowAgentsTab, canShowTeamTab, onCommsRefresh])
+    if (panelTab === 'files' && !onFilesRefresh) {
+      setPanelTab('chat')
+    }
+  }, [panelTab, canShowAgentsTab, canShowTeamTab, onCommsRefresh, onFilesRefresh])
 
   // Unread counts per channel
   const unreadCounts = useMemo(() => {
@@ -1191,6 +1209,13 @@ export function WorkspacePage({
         recoveryStatus={recoveryStatus ?? null}
         canShowTeamTab={canShowTeamTab}
         onTeamStopRun={activeSessionId ? () => onSessionStop?.(activeSessionId) : undefined}
+        filesCurrentPath={filesCurrentPath}
+        filesEntries={filesEntries}
+        filesError={filesError}
+        onFilesNavigate={onFilesNavigate}
+        onFilesRefresh={onFilesRefresh}
+        onFilesDelete={onFilesDelete}
+        filesDownloadUrlFor={filesDownloadUrlFor}
         onTitleChange={onTitleChange}
         onSessionConfigChange={handleSessionConfigChange}
         onSessionTaskAgentChange={onSessionTaskAgentChange}

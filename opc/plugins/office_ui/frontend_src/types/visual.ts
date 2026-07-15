@@ -126,6 +126,8 @@ export type SocketEnvelope =
   | { type: 'get_vm_credentials'; payload: { ok: boolean; api_key_set: boolean; api_base: string } }
   | { type: 'update_vm_credentials'; payload: { ok: boolean; api_key_set?: boolean; api_base?: string; error?: string } }
   | { type: 'list_nodes'; payload: { ok: boolean; available: boolean; clusters: Array<{ name: string; status: string; region: string; instance_type: string; price_per_hour: number | null; runtime_seconds: number | null }> } }
+  | { type: 'list_workspace_files'; payload: { ok: boolean; entries?: Array<{ name: string; is_dir: boolean; size: number; mtime: number }>; error?: string } }
+  | { type: 'delete_workspace_file'; payload: { ok: boolean; error?: string } }
 
 export type SocketStatus = 'connecting' | 'connected' | 'disconnected' | 'error'
 
