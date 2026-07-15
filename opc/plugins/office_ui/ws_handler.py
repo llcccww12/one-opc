@@ -4877,7 +4877,7 @@ class WSHandler:
         if llm:
             api_key = str(getattr(llm, "_api_key", "") or "")
             api_base = str(getattr(llm, "_api_base", "") or "")
-            default_model = str(getattr(llm, "config", None) and llm.config.default_model or "")
+            default_model = str(getattr(getattr(llm, "config", None), "default_model", ""))
 
         return {
             "type": "run_task",
@@ -4979,10 +4979,14 @@ class WSHandler:
                                     "task_id": task_id, "project_id": pid, "text": text,
                                 }})
 
-                            outcome = await self._dispatch_to_vm(
-                                user_id, task_id, vm_msg,
-                                on_progress=_on_vm_progress,
-                            )
+                            try:
+                                outcome = await self._dispatch_to_vm(
+                                    user_id, task_id, vm_msg,
+                                    on_progress=_on_vm_progress,
+                                )
+                            except Exception:
+                                logger.warning("VM dispatch failed for task %s, falling back to local", task_id, exc_info=True)
+                                outcome = None
                             if outcome is not None:
                                 # VM handled the task — convert outcome to a response string
                                 response = outcome.stdout or ""
