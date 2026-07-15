@@ -515,9 +515,13 @@ export default function App() {
   const [orgToast, setOrgToast] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null)
   const [llmConfig, setLlmConfig] = useState<{ default_model: string; api_base: string; api_key_set: boolean } | null>(null)
   const [llmConfigSaveMessage, setLlmConfigSaveMessage] = useState('')
+  const [vmCredentials, setVmCredentials] = useState<{ api_key_set: boolean; api_base: string } | null>(null)
+  const [vmCredentialsSaveMessage, setVmCredentialsSaveMessage] = useState('')
   const [nodesData, setNodesData] = useState<{ available: boolean; clusters: NodeCluster[] } | null>(null)
   const requestLlmConfig = useCallback(() => { clientRef.current?.getLlmConfig() }, [])
   const saveLlmConfig = useCallback((patch: { default_model?: string; api_base?: string; api_key?: string }) => { clientRef.current?.updateLlmConfig(patch) }, [])
+  const requestVmCredentials = useCallback(() => { clientRef.current?.getVmCredentials() }, [])
+  const saveVmCredentials = useCallback((patch: { api_key?: string; api_base?: string }) => { clientRef.current?.updateVmCredentials(patch) }, [])
 
   useEffect(() => {
     if (activePage === 'nodes') clientRef.current?.listNodes()
@@ -1661,6 +1665,20 @@ export default function App() {
           setLlmConfigSaveMessage(payload.error || 'Save failed')
         }
       },
+      onGetVmCredentials: (payload) => {
+        setVmCredentials({ api_key_set: payload.api_key_set, api_base: payload.api_base })
+      },
+      onUpdateVmCredentials: (payload) => {
+        if (payload.ok) {
+          setVmCredentials({
+            api_key_set: Boolean(payload.api_key_set),
+            api_base: payload.api_base ?? '',
+          })
+          setVmCredentialsSaveMessage('Saved')
+        } else {
+          setVmCredentialsSaveMessage(payload.error || 'Save failed')
+        }
+      },
       onListNodes: (payload) => {
         setNodesData(payload)
       },
@@ -2294,6 +2312,10 @@ export default function App() {
             onRequestLlmConfig={requestLlmConfig}
             onSaveLlmConfig={saveLlmConfig}
             saveMessage={llmConfigSaveMessage}
+            vmCredentials={vmCredentials}
+            onRequestVmCredentials={requestVmCredentials}
+            onSaveVmCredentials={saveVmCredentials}
+            vmCredentialsSaveMessage={vmCredentialsSaveMessage}
           />
           <button className={`rail-btn${showHelp ? ' active' : ''}`} onClick={() => setShowHelp((v) => !v)} title="使用手册">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>

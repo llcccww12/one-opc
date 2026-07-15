@@ -17,4 +17,12 @@ assert.match(source, /onUpdateLlmConfig\?:/, 'SocketHandlers must declare onUpda
 assert.match(source, /case 'get_llm_config':\s*this\.handlers\.onGetLlmConfig\?\.\(parsed\.payload/, 'handleMessage must dispatch get_llm_config to onGetLlmConfig')
 assert.match(source, /case 'update_llm_config':\s*this\.handlers\.onUpdateLlmConfig\?\.\(parsed\.payload/, 'handleMessage must dispatch update_llm_config to onUpdateLlmConfig')
 
+assert.match(source, /getVmCredentials\(\): void \{\s*this\.send\(\{ type: 'get_vm_credentials' \}\)/, 'getVmCredentials must send a get_vm_credentials message')
+assert.match(source, /updateVmCredentials\(patch:/, 'updateVmCredentials must accept a patch object')
+assert.match(source, /type: 'update_vm_credentials', patch/, 'updateVmCredentials must send patch in the payload')
+assert.match(source, /onGetVmCredentials\?:/, 'SocketHandlers must declare onGetVmCredentials')
+assert.match(source, /onUpdateVmCredentials\?:/, 'SocketHandlers must declare onUpdateVmCredentials')
+assert.match(source, /case 'get_vm_credentials':\s*this\.handlers\.onGetVmCredentials\?\.\(parsed\.payload/, 'handleMessage must dispatch get_vm_credentials to onGetVmCredentials')
+assert.match(source, /case 'update_vm_credentials':\s*this\.handlers\.onUpdateVmCredentials\?\.\(parsed\.payload/, 'handleMessage must dispatch update_vm_credentials to onUpdateVmCredentials')
+
 console.log('wsClient.test.ts passed')

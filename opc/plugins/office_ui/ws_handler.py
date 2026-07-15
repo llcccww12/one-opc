@@ -65,6 +65,7 @@ if TYPE_CHECKING:
     from opc.plugins.office_ui.chat_store import ChatStore
     from opc.plugins.office_ui.event_adapter import EventAdapter
     from opc.plugins.office_ui.user_store import UserStore
+    from opc.plugins.office_ui.credential_vault import CredentialVault
 
 from opc.plugins.office_ui.dispatcher import Dispatcher
 from opc.plugins.office_ui.services import (
@@ -440,6 +441,7 @@ class WSHandler:
         chat_store: ChatStore,
         event_adapter: EventAdapter,
         user_store: UserStore | None = None,
+        credential_vault: CredentialVault | None = None,
     ) -> None:
         self.engine = engine
         self._root_engine = engine
@@ -449,6 +451,7 @@ class WSHandler:
         self.chat_store = chat_store
         self.event_adapter = event_adapter
         self._user_store = user_store
+        self._credential_vault = credential_vault
         self._client_user_ids: dict[Any, str] = {}
         self._clients: set[aiohttp.web.WebSocketResponse] = set()
         self._client_project_ids: dict[Any, str] = {}
@@ -9117,6 +9120,47 @@ class WSHandler:
         except ServiceError as exc:
             await self._send_service_error(ws, exc, action="update_llm_config")
 
+    async def _handle_get_vm_credentials(self, ws: Any, data: dict) -> None:
+        user_id = self._client_user_ids.get(ws)
+        api_key_set = False
+        api_base = ""
+        if user_id and user_id != "anonymous" and self._credential_vault is not None:
+            creds = await self._credential_vault.get_credentials(user_id)
+            if creds is not None:
+                api_key_set = True
+                api_base = creds[1]
+        await self._safe_send_json(
+            ws, {"type": "get_vm_credentials", "payload": {"ok": True, "api_key_set": api_key_set, "api_base": api_base}}
+        )
+
+    async def _handle_update_vm_credentials(self, ws: Any, data: dict) -> None:
+        user_id = self._client_user_ids.get(ws)
+        if not user_id or user_id == "anonymous" or self._credential_vault is None:
+            await self._safe_send_json(
+                ws, {"type": "update_vm_credentials", "payload": {"ok": False, "error": "unauthorized"}}
+            )
+            return
+
+        patch = data.get("patch", {}) or {}
+        api_base = str(patch.get("api_base") or "")
+        new_key = str(patch.get("api_key") or "").strip()
+
+        key_to_store = new_key
+        if not key_to_store:
+            existing = await self._credential_vault.get_credentials(user_id)
+            key_to_store = existing[0] if existing else ""
+
+        if not key_to_store:
+            await self._safe_send_json(
+                ws, {"type": "update_vm_credentials", "payload": {"ok": False, "error": "missing_api_key"}}
+            )
+            return
+
+        await self._credential_vault.set_credentials(user_id, key_to_store, api_base)
+        await self._safe_send_json(
+            ws, {"type": "update_vm_credentials", "payload": {"ok": True, "api_key_set": True, "api_base": api_base}}
+        )
+
     async def _handle_list_nodes(self, ws: Any, data: dict) -> None:
         result = await self._ensure_office_services().nodes.list_nodes()
         await self._safe_send_json(ws, {"type": "list_nodes", "payload": {"ok": True, **result.payload}})
@@ -9977,6 +10021,8 @@ class WSHandler:
         "list_projects":       _handle_list_projects,
         "get_llm_config":      _handle_get_llm_config,
         "update_llm_config":   _handle_update_llm_config,
+        "get_vm_credentials":    _handle_get_vm_credentials,
+        "update_vm_credentials": _handle_update_vm_credentials,
         "list_nodes":          _handle_list_nodes,
         "create_project":      _handle_create_project,
         "delete_project":      _handle_delete_project,
