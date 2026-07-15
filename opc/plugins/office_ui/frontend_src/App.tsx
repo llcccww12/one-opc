@@ -2501,6 +2501,7 @@ export default function App() {
             clientRef.current?.commsState(getActiveProjectId(), scopedOpts)
           }}
           onCommsReadMessage={(path) => clientRef.current?.commsReadMessage(getActiveProjectId(), path)}
+          onReviewDecision={(workItemId, decision, feedback) => clientRef.current?.sendReviewDecision(getActiveProjectId(), workItemId, decision, feedback)}
           filesCurrentPath={filesCurrentPath}
           filesEntries={filesEntries}
           filesError={filesError}

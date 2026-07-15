@@ -260,6 +260,7 @@ interface WorkspacePageProps {
   commsMessage?: import('../lib/wsClient').CommsMessagePayload | null
   onCommsRefresh?: (opts?: { task_id?: string; session_id?: string; project_id?: string }) => void
   onCommsReadMessage?: (path: string) => void
+  onReviewDecision?: (workItemId: string, decision: 'approve' | 'reject' | 'rework', feedback?: string) => void
   savedOrgsList?: SavedOrgSummary[] | null
   activeSavedOrg?: string | null
   onSavedOrgsList?: () => void
@@ -312,6 +313,7 @@ export function WorkspacePage({
   commsMessage,
   onCommsRefresh,
   onCommsReadMessage,
+  onReviewDecision,
   savedOrgsList,
   activeSavedOrg,
   onSavedOrgsList,
@@ -1205,6 +1207,7 @@ export function WorkspacePage({
         commsMessage={commsMessage ?? null}
         onCommsRefresh={onCommsRefresh ? () => onCommsRefresh({ session_id: activeSession?.sessionId || undefined, project_id: projectId || undefined }) : undefined}
         onCommsReadMessage={onCommsReadMessage}
+        onReviewDecision={onReviewDecision}
         orgInfoData={orgInfoData ?? null}
         recoveryStatus={recoveryStatus ?? null}
         canShowTeamTab={canShowTeamTab}

@@ -77,6 +77,7 @@ interface ContextPanelProps {
   commsMessage?: CommsMessagePayload | null
   onCommsRefresh?: () => void
   onCommsReadMessage?: (path: string) => void
+  onReviewDecision?: (workItemId: string, decision: 'approve' | 'reject' | 'rework', feedback?: string) => void
   orgInfoData?: OrgInfoPayload | null
   recoveryStatus?: Record<string, unknown> | null
   canShowTeamTab?: boolean
@@ -465,6 +466,7 @@ export function ContextPanel({
   commsMessage,
   onCommsRefresh,
   onCommsReadMessage,
+  onReviewDecision,
   orgInfoData,
   recoveryStatus,
   canShowTeamTab = false,
@@ -633,6 +635,7 @@ export function ContextPanel({
             onOpenLinkedSession={onSelectSessionTab}
             onOpenExecutionPanel={onOpenExecutionPanel}
             onSend={onMessageSend}
+            onReviewDecision={onReviewDecision}
           />
         ) : isChildDetail && childDetailSession ? (
           /* Child detail view */
