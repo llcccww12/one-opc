@@ -68,11 +68,12 @@ class WorkerRuntime:
         cmd = list(data.get("cmd") or [])
         api_key = str(data.get("api_key") or "")
         api_base = str(data.get("api_base") or "")
+        default_model = str(data.get("default_model") or "")
 
         workspace_path = self._workspace_root / project_id
         workspace_path.mkdir(parents=True, exist_ok=True)
 
-        extra_env = anthropic_env_for(api_key, api_base)
+        extra_env = anthropic_env_for(api_key, api_base, default_model)
         adapter = ClaudeCodeAdapter()
 
         self._current_task_id = task_id

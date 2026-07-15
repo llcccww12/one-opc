@@ -145,6 +145,15 @@ class ExternalAgentBroker:
             return TaskResult(status=TaskStatus.FAILED, content="请先配置你的模型 API Key", artifacts=dict(metadata))
         api_key, api_base = credentials
 
+        # default_model is a platform-wide setting (not per-user BYOK), same
+        # source _apply_llm_config_env uses for the local-execution path — a
+        # custom api_base (relay) needs it to know which model name to send,
+        # since Claude Code's own default model alias is meaningless to a
+        # non-Anthropic relay.
+        default_model = ""
+        if self._llm_config_provider is not None:
+            default_model = str(getattr(self._llm_config_provider(), "default_model", "") or "").strip()
+
         async def _forward_progress(text: str) -> None:
             if on_progress is not None:
                 await on_progress(text)
@@ -159,6 +168,7 @@ class ExternalAgentBroker:
                 "cmd": cmd,
                 "api_key": api_key,
                 "api_base": api_base,
+                "default_model": default_model,
             },
             _forward_progress,
             timeout_seconds=self._WORKER_TASK_TIMEOUT_SECONDS,

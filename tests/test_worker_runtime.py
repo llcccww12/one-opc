@@ -94,6 +94,30 @@ class WorkerRuntimeTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue((workspace_root / "my-project").is_dir())
 
+    async def test_run_task_passes_default_model_to_relay_env(self) -> None:
+        # default_model must reach anthropic_env_for so a relay-pointed
+        # api_base gets an ANTHROPIC_MODEL the relay understands, instead of
+        # Claude Code's own default model alias.
+        runtime = WorkerRuntime("http://localhost:8765", "tok", Path(tempfile.mkdtemp()))
+        ws = AsyncMock()
+        fake_proc = _make_fake_proc([], [], 0)
+        start_process = AsyncMock(return_value=fake_proc)
+
+        with patch(
+            "opc.layer3_agent.worker_runtime.ClaudeCodeAdapter.start_process", start_process
+        ), patch(
+            "opc.layer3_agent.worker_runtime.ClaudeCodeAdapter.extract_resume_session_id", return_value=None
+        ):
+            await runtime._handle_run_task(ws, {
+                "task_id": "task-1", "project_id": "demo", "cmd": ["claude"],
+                "api_key": "sk-test", "api_base": "https://relay.example.com",
+                "default_model": "anthropic/mimo-v2.5-pro",
+            })
+
+        _cmd, _workspace = start_process.await_args.args
+        extra_env = start_process.await_args.kwargs["extra_env"]
+        self.assertEqual(extra_env["ANTHROPIC_MODEL"], "mimo-v2.5-pro")
+
     async def test_cancel_task_kills_matching_process(self) -> None:
         runtime = WorkerRuntime("http://localhost:8765", "tok", Path(tempfile.mkdtemp()))
         fake_process = MagicMock()
