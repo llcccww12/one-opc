@@ -464,7 +464,7 @@ class VerdictParseRetryTests(unittest.IsolatedAsyncioTestCase):
                 await executor._finalize_review_work_item(review_task)
 
                 child_after = await store.get_delegation_work_item("wi-child")
-                self.assertEqual(child_after.phase, Phase.APPROVED)
+                self.assertEqual(child_after.phase, Phase.AWAITING_HUMAN)
                 self.assertTrue(child_after.metadata.get("review_rework_cap_reached_auto_done"))
                 self.assertEqual(int(child_after.metadata.get("review_rework_cap", 0)), 5)
                 self.assertEqual(
@@ -508,7 +508,7 @@ class VerdictParseRetryTests(unittest.IsolatedAsyncioTestCase):
 
                 child_after = await store.get_delegation_work_item("wi-child")
                 self.assertEqual(
-                    child_after.phase, Phase.APPROVED,
+                    child_after.phase, Phase.AWAITING_HUMAN,
                     "custom max_review_reworks=3 must stop rework at the third rework",
                 )
                 self.assertTrue(child_after.metadata.get("review_rework_cap_reached_auto_done"))
