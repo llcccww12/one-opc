@@ -7054,8 +7054,15 @@ class CompanyWorkItemExecutor:
             await self._notify_kanban_changed()
             return
 
-        decision = "approve" if verdict_label == "approve" else "rework"
-        next_phase = Phase.APPROVED if decision == "approve" else Phase.READY_FOR_REWORK
+        if verdict_label == "approve":
+            decision = "approve"
+            next_phase = Phase.APPROVED
+        elif verdict_label == "escalate":
+            decision = "escalate"
+            next_phase = Phase.AWAITING_HUMAN
+        else:
+            decision = "rework"
+            next_phase = Phase.READY_FOR_REWORK
         review_outcome = decision
 
         # Apply the verdict to the child work item if it is still
@@ -7088,11 +7095,12 @@ class CompanyWorkItemExecutor:
                 if prior_rework_count >= max_review_reworks:
                     auto_done_reason = (
                         f"Rework count ({prior_rework_count}) reached the configured "
-                        f"cap of {max_review_reworks}; marking the work item done instead "
-                        f"of requesting another rework. Latest reviewer feedback:\n{feedback}"
+                        f"cap of {max_review_reworks}; escalating to human decision "
+                        f"instead of requesting another rework. Latest reviewer feedback:\n{feedback}"
                     ).strip()
-                    next_phase = Phase.APPROVED
+                    next_phase = Phase.AWAITING_HUMAN
                     review_outcome = "auto_done_rework_cap"
+                    escalation_reason = auto_done_reason
                     child_metadata_updates["rework_feedback"] = ""
                     child_metadata_updates["review_rework_cap_reached_auto_done"] = True
                     child_metadata_updates["review_rework_cap"] = max_review_reworks
@@ -7102,6 +7110,8 @@ class CompanyWorkItemExecutor:
                     child_metadata_updates["review_rework_count"] = prior_rework_count + 1
                     child_metadata_updates["review_feedback_version"] = prior_feedback_version + 1
                     child_metadata_updates["review_feedback_updated_at"] = datetime.now().isoformat()
+            elif next_phase == Phase.AWAITING_HUMAN and not escalation_reason:
+                escalation_reason = feedback or "Review verdict: escalate — human decision required."
             elif next_phase == Phase.APPROVED:
                 child_metadata_updates["review_rework_count"] = 0
             try:
@@ -12070,6 +12080,8 @@ class CompanyWorkItemExecutor:
                 return {"label": "approve", "summary": value.strip()}
             if lowered in {"reject", "rejected", "fail", "failed", "rework"}:
                 return {"label": "reject", "summary": value.strip()}
+            if lowered in {"escalate", "escalated"}:
+                return {"label": "escalate", "summary": value.strip()}
             return {}
         if not isinstance(value, dict):
             return {}
@@ -12088,7 +12100,9 @@ class CompanyWorkItemExecutor:
             raw = "approve"
         elif raw in {"rejected", "fail", "failed", "rework"}:
             raw = "reject"
-        if raw not in {"approve", "reject"}:
+        elif raw in {"escalate", "escalated"}:
+            raw = "escalate"
+        if raw not in {"approve", "reject", "escalate"}:
             return {}
         blocking = value.get("blocking_issues", [])
         followups = value.get("followups", [])
@@ -12113,7 +12127,7 @@ class CompanyWorkItemExecutor:
             output_metadata.get("structured_review_verdict")
             or task.metadata.get("structured_review_verdict")
         )
-        if structured.get("label") in {"approve", "reject"}:
+        if structured.get("label") in {"approve", "reject", "escalate"}:
             return str(structured["label"])
         return "reject"
 
