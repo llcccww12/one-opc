@@ -30,6 +30,7 @@ interface StructureEditorProps {
   ) => void
   onUpdateRole: (roleId: string, updates: RoleUpdatePatch) => void
   onDeleteRole: (roleId: string) => void
+  onUnassignEmployee: (roleId: string, employeeId: string) => void
   // Saved org architectures — render a version-switcher pill in the toolbar
   savedOrgsList?: SavedOrgSummary[] | null
   activeSavedOrg?: string | null
@@ -45,7 +46,7 @@ type EditorView = 'canvas' | 'table'
 
 export function StructureEditor({
   roles, employees, sessionRecruitmentByRole, isCustomMode,
-  onAddRole, onUpdateRole, onDeleteRole,
+  onAddRole, onUpdateRole, onDeleteRole, onUnassignEmployee,
   savedOrgsList, activeSavedOrg, currentOrgVersion, versionAtLoad,
   onSavedOrgsList, onSavedOrgSaveAs, onSavedOrgLoad, onSavedOrgDelete,
 }: StructureEditorProps) {
@@ -214,6 +215,7 @@ export function StructureEditor({
             readOnly={!isCustomMode}
             onUpdateRole={onUpdateRole}
             onDeleteRole={(id) => { onDeleteRole(id); setSelectedId(null) }}
+            onUnassignEmployee={onUnassignEmployee}
             onClose={() => setSelectedId(null)}
           />
         )}

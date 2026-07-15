@@ -591,6 +591,10 @@ export class VisualSocketClient {
     this.send({ type: 'delete_role', role_id: roleId })
   }
 
+  unassignEmployee(roleId: string, employeeId: string): void {
+    this.send({ type: 'unassign_employee', role_id: roleId, employee_id: employeeId })
+  }
+
   updateRuntimePolicy(policy: Record<string, any>): void {
     this.send({ type: 'update_runtime_policy', policy })
   }

@@ -2489,6 +2489,7 @@ export default function App() {
             onBulkAddRoles={(roles) => clientRef.current?.bulkAddRoles(roles)}
             onUpdateRole={(rid, updates) => clientRef.current?.updateRole(rid, updates)}
             onDeleteRole={(rid) => clientRef.current?.deleteRole(rid)}
+            onUnassignEmployee={(rid, eid) => clientRef.current?.unassignEmployee(rid, eid)}
             onUpdateOrgStrategy={(data) => clientRef.current?.updateOrgStrategy(data)}
             onUpdateRuntimePolicy={(policy) => clientRef.current?.updateRuntimePolicy(policy)}
             onResetArchitecture={() => clientRef.current?.resetArchitecture()}

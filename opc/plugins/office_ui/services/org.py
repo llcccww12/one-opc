@@ -878,6 +878,49 @@ class OrgService:
         info = await self.info(include_events=True)
         return ServiceResult({"role": self._model_payload(target), "action": "role_updated", "role_id": role_id}, info.events)
 
+    async def unassign_employee(self, role_id: str, employee_id: str) -> ServiceResult:
+        self._ensure_custom_org_editable()
+        role_id = str(role_id or "").strip()
+        employee_id = str(employee_id or "").strip()
+        if not role_id or not employee_id:
+            raise ServiceError("missing_ids", "role_id and employee_id required")
+        cfg = self.context.engine.config.org
+        target = next((e for e in cfg.employees if e.employee_id == employee_id), None)
+        if target is None:
+            raise ServiceError("employee_not_found", "Employee not found", {"employee_id": employee_id})
+        org = getattr(self.context.engine, "org_engine", None)
+        role_ids = org.employee_role_ids(target) if org else [target.role_id]
+        if role_id not in role_ids:
+            raise ServiceError("not_assigned", "Employee is not assigned to this role", {"role_id": role_id})
+        remaining = [r for r in role_ids if r != role_id]
+        if target.role_id != role_id:
+            metadata = dict(target.metadata or {})
+            metadata["home_role_ids"] = [r for r in metadata.get("home_role_ids", []) or [] if r != role_id]
+            metadata["staffed_role_ids"] = [r for r in metadata.get("staffed_role_ids", []) or [] if r != role_id]
+            target.metadata = metadata
+            action = "employee_unassigned"
+        elif remaining:
+            new_primary = remaining[0]
+            metadata = dict(target.metadata or {})
+            metadata["home_role_id"] = None
+            metadata["home_role_ids"] = [r for r in metadata.get("home_role_ids", []) or [] if r not in {role_id, new_primary}]
+            metadata["staffed_role_ids"] = [r for r in metadata.get("staffed_role_ids", []) or [] if r not in {role_id, new_primary}]
+            target.metadata = metadata
+            target.role_id = new_primary
+            action = "employee_unassigned"
+        else:
+            cfg.employees = [e for e in cfg.employees if e.employee_id != employee_id]
+            action = "employee_removed"
+        async with self.context.config_lock:
+            await self._persist_and_reload()
+        if action == "employee_removed":
+            org = getattr(self.context.engine, "org_engine", None)
+            ensure_default = getattr(org, "ensure_default_employee_for_role", None) if org else None
+            if callable(ensure_default):
+                ensure_default(role_id, persist=False)
+        info = await self.info(include_events=True)
+        return ServiceResult({"employee_id": employee_id, "role_id": role_id, "action": action}, info.events)
+
     async def delete_role(self, role_id: str) -> ServiceResult:
         self._ensure_custom_org_editable()
         cfg = self.context.engine.config.org

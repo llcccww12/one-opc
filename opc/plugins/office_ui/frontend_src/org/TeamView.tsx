@@ -149,6 +149,7 @@ interface TeamViewProps {
   onBulkAddRoles?: (roles: Array<{ role_id: string; name: string; responsibility: string; reports_to: string }>) => void
   onUpdateRole: (roleId: string, updates: { name?: string; responsibility?: string; reports_to?: string; can_spawn?: string[]; icon?: string | null; execution_strategy?: string; preferred_external_agent?: string | null; prompt_refs?: string[] }) => void
   onDeleteRole: (roleId: string) => void
+  onUnassignEmployee: (roleId: string, employeeId: string) => void
   onExport: (data: { package_id: string; name: string; description: string; version: string }) => void
   onImportEmployee?: (employeeId: string) => void
   onResetArchitecture?: () => void
@@ -166,7 +167,7 @@ interface TeamViewProps {
 
 export function TeamView({
   roles, employees, sessionRecruitmentByRole, isCustomMode,
-  onAddRole, onBulkAddRoles, onUpdateRole, onDeleteRole, onExport,
+  onAddRole, onBulkAddRoles, onUpdateRole, onDeleteRole, onUnassignEmployee, onExport,
   onImportEmployee,
   onResetArchitecture, onSwitchToTab,
   savedOrgsList, activeSavedOrg, currentOrgVersion, versionAtLoad,
@@ -323,6 +324,7 @@ export function TeamView({
         onAddRole={onAddRole}
         onUpdateRole={onUpdateRole}
         onDeleteRole={onDeleteRole}
+        onUnassignEmployee={onUnassignEmployee}
         savedOrgsList={savedOrgsList ?? null}
         activeSavedOrg={activeSavedOrg ?? null}
         currentOrgVersion={currentOrgVersion ?? 0}

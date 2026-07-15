@@ -110,6 +110,7 @@ interface OrgTabProps {
   onBulkAddRoles?: (roles: Array<{ role_id: string; name: string; responsibility: string; reports_to: string }>) => void
   onUpdateRole?: (roleId: string, updates: { name?: string; responsibility?: string; reports_to?: string; can_spawn?: string[]; icon?: string | null; execution_strategy?: string; preferred_external_agent?: string | null; prompt_refs?: string[] }) => void
   onDeleteRole?: (roleId: string) => void
+  onUnassignEmployee?: (roleId: string, employeeId: string) => void
   onUpdateOrgStrategy?: (data: { final_decider_role_id?: string | null }) => void
   onUpdateRuntimePolicy?: (policy: Record<string, any>) => void
   onResetArchitecture?: () => void
@@ -122,7 +123,7 @@ export function OrgTab({
   onMarketExport, onMarketInstall, onMarketUninstall,
   onAddConnector, onRemoveConnector, onSetConnectorRoles,
   marketPresets, marketPreviewData, onMarketBrowse, onMarketPreview, onMarketApplyPreset, onMarketClearPreview,
-  onAddRole, onBulkAddRoles, onUpdateRole, onDeleteRole, onUpdateOrgStrategy,
+  onAddRole, onBulkAddRoles, onUpdateRole, onDeleteRole, onUnassignEmployee, onUpdateOrgStrategy,
   onUpdateRuntimePolicy, onResetArchitecture,
   onConfigExport, onConfigImport, configExportYaml, configImportPreview, configImportError,
   onSavedOrgsList, onSavedOrgSaveAs, onSavedOrgCreate, onSavedOrgLoad, onSavedOrgDelete, savedOrgsList,
@@ -366,6 +367,7 @@ export function OrgTab({
             onBulkAddRoles={onBulkAddRoles}
             onUpdateRole={onUpdateRole ?? (() => {})}
             onDeleteRole={onDeleteRole ?? (() => {})}
+            onUnassignEmployee={onUnassignEmployee ?? (() => {})}
             onExport={onMarketExport ?? (() => {})}
             onImportEmployee={onImportEmployee}
             onResetArchitecture={onResetArchitecture}

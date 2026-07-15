@@ -9813,6 +9813,24 @@ class WSHandler:
             logger.warning(f"Failed to update role: {exc}")
             await self._send_ack(ws, ok=False, error=str(exc))
 
+    async def _handle_unassign_employee(self, ws: Any, data: dict) -> None:
+        """Remove an employee's assignment to a role."""
+        try:
+            role_id = str(data.get("role_id", "") or "").strip()
+            employee_id = str(data.get("employee_id", "") or "").strip()
+            if not role_id or not employee_id:
+                await self._send_ack(ws, ok=False, error="role_id and employee_id required")
+                return
+            result = await self._ensure_office_services().org.unassign_employee(role_id, employee_id)
+            await self._publish_service_result(result)
+            await self._send_ack(ws, ok=True, action=result.payload.get("action", "employee_unassigned"), role_id=role_id, employee_id=employee_id)
+            await self._broadcast_org_info()
+        except ServiceError as exc:
+            await self._send_service_error(ws, exc, action="unassign_employee")
+        except Exception as exc:
+            logger.warning(f"Failed to unassign employee: {exc}")
+            await self._send_ack(ws, ok=False, error=str(exc))
+
     async def _handle_add_connector(self, ws: Any, data: dict) -> None:
         """Connect a new MCP server and register it as a connector."""
         try:
@@ -10000,6 +10018,7 @@ class WSHandler:
         "bulk_add_roles":      _handle_bulk_add_roles,
         "add_role":            _handle_add_role,
         "update_role":         _handle_update_role,
+        "unassign_employee":   _handle_unassign_employee,
         "update_org_strategy": _handle_update_org_strategy,
         "delete_role":         _handle_delete_role,
         "update_runtime_policy": _handle_update_runtime_policy,

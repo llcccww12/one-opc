@@ -53,6 +53,7 @@ interface RoleInspectorProps {
   readOnly?: boolean
   onUpdateRole: (roleId: string, updates: RoleUpdatePatch) => void
   onDeleteRole: (roleId: string) => void
+  onUnassignEmployee: (roleId: string, employeeId: string) => void
   onClose: () => void
 }
 
@@ -74,7 +75,7 @@ export interface RoleUpdatePatch {
 
 export function RoleInspector({
   role, allRoles, employees, readOnly,
-  onUpdateRole, onDeleteRole, onClose,
+  onUpdateRole, onDeleteRole, onUnassignEmployee, onClose,
 }: RoleInspectorProps) {
   const [name, setName] = useState(role.name)
   const [responsibility, setResponsibility] = useState(role.responsibility)
@@ -83,11 +84,12 @@ export function RoleInspector({
   const [canSpawn, setCanSpawn] = useState<Set<string>>(() => new Set(role.can_spawn))
   const [tools, setTools] = useState<Set<string>>(() => new Set(role.tools))
   const [execStrategy, setExecStrategy] = useState<string>(
-    role.runtime_policy?.execution_strategy ?? 'auto',
+    role.execution_strategy ?? role.runtime_policy?.execution_strategy ?? 'auto',
   )
   const [extAgent, setExtAgent] = useState<string | null>(role.preferred_external_agent ?? null)
   const [promptRefs, setPromptRefs] = useState<string>((role.prompt_refs ?? []).join('\n'))
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [confirmUnassignId, setConfirmUnassignId] = useState<string | null>(null)
 
   // Reset local state when selected role changes
   const lastRoleIdRef = useRef(role.role_id)
@@ -100,10 +102,11 @@ export function RoleInspector({
     setIconKey(role.icon ?? null)
     setCanSpawn(new Set(role.can_spawn))
     setTools(new Set(role.tools))
-    setExecStrategy(role.runtime_policy?.execution_strategy ?? 'auto')
+    setExecStrategy(role.execution_strategy ?? role.runtime_policy?.execution_strategy ?? 'auto')
     setExtAgent(role.preferred_external_agent ?? null)
     setPromptRefs((role.prompt_refs ?? []).join('\n'))
     setConfirmDelete(false)
+    setConfirmUnassignId(null)
   }, [role])
 
   /* ── Debounced save: batch fragments, fire once after 500ms quiescence ── */
@@ -169,8 +172,8 @@ export function RoleInspector({
     () => allRoles.filter(r => r.role_id !== role.role_id),
     [allRoles, role.role_id],
   )
-  const employeeCount = useMemo(
-    () => employees.filter(e => (e.role_ids?.length ? e.role_ids : [e.role_id]).includes(role.role_id)).length,
+  const assignedEmployees = useMemo(
+    () => employees.filter(e => (e.role_ids?.length ? e.role_ids : [e.role_id]).includes(role.role_id)),
     [employees, role.role_id],
   )
   const promptRefCount = useMemo(
@@ -183,6 +186,12 @@ export function RoleInspector({
     if (!confirmDelete) { setConfirmDelete(true); return }
     flush()
     onDeleteRole(role.role_id)
+  }
+
+  const handleUnassign = (employeeId: string) => {
+    if (confirmUnassignId !== employeeId) { setConfirmUnassignId(employeeId); return }
+    setConfirmUnassignId(null)
+    onUnassignEmployee(role.role_id, employeeId)
   }
 
   return (
@@ -244,7 +253,27 @@ export function RoleInspector({
             />
           </InspectorField>
           <InspectorField label="Employees assigned">
-            <span className="ri-meta-value">{employeeCount}</span>
+            {assignedEmployees.length === 0 ? (
+              <span className="ri-meta-value">0</span>
+            ) : (
+              <ul className="ri-employee-list">
+                {assignedEmployees.map(emp => (
+                  <li key={emp.employee_id} className="ri-employee-row">
+                    <span className="ri-employee-name">{emp.name}</span>
+                    {!readOnly && (
+                      <button
+                        type="button"
+                        className="btn btn-ghost btn-sm ri-employee-remove"
+                        onClick={() => handleUnassign(emp.employee_id)}
+                        title="Unassign from this role"
+                      >
+                        {confirmUnassignId === emp.employee_id ? 'Confirm?' : '✕'}
+                      </button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
           </InspectorField>
         </InspectorGroup>
 
