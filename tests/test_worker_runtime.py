@@ -201,6 +201,46 @@ class WorkerRuntimeFileOpsTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(sent["ok"])
         self.assertEqual(sent["error"], "invalid_path")
 
+    async def test_list_dir_rejects_traversal_via_project_id(self) -> None:
+        # project_id is joined onto self._workspace_root *before*
+        # _resolve_safe_path runs, so a malicious project_id must be
+        # rejected independently of the path-traversal check on `path` --
+        # otherwise _resolve_safe_path's own root has already escaped and
+        # the check is meaningless.
+        ws = AsyncMock()
+        await self.runtime._handle_list_dir(ws, {"request_id": "r1", "project_id": "../../etc", "path": ""})
+        sent = ws.send_json.await_args.args[0]
+        self.assertEqual(sent.get("error"), "invalid_path")
+
+    async def test_read_file_rejects_traversal_via_project_id(self) -> None:
+        ws = AsyncMock()
+        await self.runtime._handle_read_file(ws, {"request_id": "r1", "project_id": "../../etc", "path": "passwd"})
+        sent = ws.send_json.await_args.args[0]
+        self.assertEqual(sent.get("error"), "invalid_path")
+
+    async def test_delete_file_rejects_traversal_via_project_id(self) -> None:
+        ws = AsyncMock()
+        await self.runtime._handle_delete_file(ws, {"request_id": "r1", "project_id": "../../etc", "path": "passwd"})
+        sent = ws.send_json.await_args.args[0]
+        self.assertFalse(sent["ok"])
+        self.assertEqual(sent["error"], "invalid_path")
+
+    async def test_list_dir_reports_oserror_as_scoped_error(self) -> None:
+        ws = AsyncMock()
+        with patch("pathlib.Path.iterdir", side_effect=OSError("permission denied")):
+            await self.runtime._handle_list_dir(ws, {"request_id": "r1", "project_id": "demo", "path": ""})
+        sent = ws.send_json.await_args.args[0]
+        self.assertEqual(sent["type"], "dir_listing")
+        self.assertIn("permission denied", sent.get("error", ""))
+
+    async def test_read_file_reports_oserror_as_scoped_error(self) -> None:
+        ws = AsyncMock()
+        with patch("pathlib.Path.read_bytes", side_effect=OSError("permission denied")):
+            await self.runtime._handle_read_file(ws, {"request_id": "r1", "project_id": "demo", "path": "notes.txt"})
+        sent = ws.send_json.await_args.args[0]
+        self.assertEqual(sent["type"], "file_content")
+        self.assertIn("permission denied", sent.get("error", ""))
+
 
 if __name__ == "__main__":
     unittest.main()

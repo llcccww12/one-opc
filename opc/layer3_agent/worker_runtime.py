@@ -38,6 +38,14 @@ def _resolve_safe_path(workspace_root: Path, relative_path: str) -> Path:
     return candidate
 
 
+def _is_safe_project_id(project_id: str) -> bool:
+    """A project_id must be a single path segment: no separators, no empty
+    string, and not '.'/'..'. Callers join it directly onto the workspace
+    root before _resolve_safe_path even runs, so a bad project_id would
+    otherwise let the path-traversal check validate against the wrong root."""
+    return project_id not in ("", ".", "..") and "/" not in project_id and "\\" not in project_id
+
+
 class WorkerRuntime:
     def __init__(self, control_plane_url: str, worker_token: str, workspace_root: Path) -> None:
         self._control_plane_url = control_plane_url.rstrip("/")
@@ -146,7 +154,11 @@ class WorkerRuntime:
 
     async def _handle_list_dir(self, ws: Any, data: dict) -> None:
         request_id = str(data.get("request_id") or "")
-        workspace_path = self._workspace_root / str(data.get("project_id") or "default")
+        project_id = str(data.get("project_id") or "default")
+        if not _is_safe_project_id(project_id):
+            await ws.send_json({"type": "dir_listing", "request_id": request_id, "error": "invalid_path"})
+            return
+        workspace_path = self._workspace_root / project_id
         try:
             target = _resolve_safe_path(workspace_path, str(data.get("path") or ""))
         except ValueError:
@@ -157,20 +169,28 @@ class WorkerRuntime:
             await ws.send_json({"type": "dir_listing", "request_id": request_id, "error": "not_found"})
             return
 
-        entries = []
-        for child in sorted(target.iterdir()):
-            stat_result = child.stat()
-            entries.append({
-                "name": child.name,
-                "is_dir": child.is_dir(),
-                "size": stat_result.st_size,
-                "mtime": stat_result.st_mtime,
-            })
+        try:
+            entries = []
+            for child in sorted(target.iterdir()):
+                stat_result = child.stat()
+                entries.append({
+                    "name": child.name,
+                    "is_dir": child.is_dir(),
+                    "size": stat_result.st_size,
+                    "mtime": stat_result.st_mtime,
+                })
+        except OSError as exc:
+            await ws.send_json({"type": "dir_listing", "request_id": request_id, "error": str(exc)})
+            return
         await ws.send_json({"type": "dir_listing", "request_id": request_id, "entries": entries})
 
     async def _handle_read_file(self, ws: Any, data: dict) -> None:
         request_id = str(data.get("request_id") or "")
-        workspace_path = self._workspace_root / str(data.get("project_id") or "default")
+        project_id = str(data.get("project_id") or "default")
+        if not _is_safe_project_id(project_id):
+            await ws.send_json({"type": "file_content", "request_id": request_id, "error": "invalid_path"})
+            return
+        workspace_path = self._workspace_root / project_id
         try:
             target = _resolve_safe_path(workspace_path, str(data.get("path") or ""))
         except ValueError:
@@ -181,7 +201,11 @@ class WorkerRuntime:
             await ws.send_json({"type": "file_content", "request_id": request_id, "error": "not_found"})
             return
 
-        content_bytes = target.read_bytes()
+        try:
+            content_bytes = target.read_bytes()
+        except OSError as exc:
+            await ws.send_json({"type": "file_content", "request_id": request_id, "error": str(exc)})
+            return
         await ws.send_json({
             "type": "file_content",
             "request_id": request_id,
@@ -190,7 +214,11 @@ class WorkerRuntime:
 
     async def _handle_delete_file(self, ws: Any, data: dict) -> None:
         request_id = str(data.get("request_id") or "")
-        workspace_path = self._workspace_root / str(data.get("project_id") or "default")
+        project_id = str(data.get("project_id") or "default")
+        if not _is_safe_project_id(project_id):
+            await ws.send_json({"type": "delete_result", "request_id": request_id, "ok": False, "error": "invalid_path"})
+            return
+        workspace_path = self._workspace_root / project_id
         try:
             target = _resolve_safe_path(workspace_path, str(data.get("path") or ""))
         except ValueError:
