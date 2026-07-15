@@ -32,6 +32,7 @@ class WorkerConnectionRegistry:
     def __init__(self) -> None:
         self._connections: dict[str, Any] = {}
         self._pending: dict[str, _PendingRequest] = {}
+        self._pending_requests: dict[str, asyncio.Future] = {}
 
     def register(self, user_id: str, connection: Any) -> None:
         self._connections[user_id] = connection
@@ -65,7 +66,36 @@ class WorkerConnectionRegistry:
         finally:
             self._pending.pop(task_id, None)
 
+    async def dispatch_request(
+        self, user_id: str, request_id: str, message: dict[str, Any], timeout_seconds: float
+    ) -> dict[str, Any] | None:
+        """Generic request/response over a worker connection, keyed by
+        request_id — distinct from dispatch_run_task's task_id-keyed
+        multiplexing, since a connection can have a run_task and a file-browse
+        request in flight at once and the two must not resolve each other."""
+        connection = self._connections.get(user_id)
+        if connection is None:
+            return None
+
+        future: asyncio.Future[dict[str, Any]] = asyncio.get_running_loop().create_future()
+        self._pending_requests[request_id] = future
+        try:
+            await connection.send_json(message)
+            try:
+                return await asyncio.wait_for(future, timeout=timeout_seconds)
+            except asyncio.TimeoutError:
+                return None
+        finally:
+            self._pending_requests.pop(request_id, None)
+
     async def handle_worker_message(self, message: dict[str, Any]) -> None:
+        request_id = message.get("request_id")
+        if request_id is not None:
+            future = self._pending_requests.get(request_id)
+            if future is not None and not future.done():
+                future.set_result(message)
+            return
+
         task_id = message.get("task_id")
         pending = self._pending.get(task_id) if task_id else None
         if pending is None:
