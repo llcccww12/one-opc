@@ -193,6 +193,42 @@ async def create_app(
     await chat_store.ensure_activity_channel()
     await chat_store.ensure_secretary_channel()
 
+    # ── Wire tenant VM service onto engine for VM dispatch routing ────
+    engine.tenant_vm_service = tenant_vm_service
+    if engine.company_executor is not None:
+        engine.company_executor.tenant_vm_service = tenant_vm_service
+
+        async def _resolve_vm_user_id(task: Any) -> str | None:
+            project_id = getattr(task, "project_id", None)
+            if not project_id:
+                return None
+            return await user_store.get_project_owner(project_id)
+
+        engine.company_executor.vm_user_id_resolver = _resolve_vm_user_id
+
+        def _build_vm_msg(task_id: str, project_id: str, content: str) -> dict[str, Any] | None:
+            from opc.core.models import Task as _Task, TaskStatus as _TS
+            adapter_reg = getattr(engine, "adapter_registry", None)
+            if not adapter_reg:
+                return None
+            adapter = adapter_reg.get("claude_code")
+            if not adapter:
+                return None
+            stub = _Task(id=task_id or "vm-dispatch", title=content[:200], description=content,
+                         status=_TS.PENDING, project_id=project_id)
+            try:
+                cmd, _ = adapter.build_invocation(stub, workspace_path=None)
+            except Exception:
+                return None
+            llm = getattr(engine, "llm", None)
+            api_key = str(getattr(llm, "_api_key", "") or "") if llm else ""
+            api_base = str(getattr(llm, "_api_base", "") or "") if llm else ""
+            default_model = str(getattr(getattr(llm, "config", None), "default_model", "") or "") if llm else ""
+            return {"type": "run_task", "task_id": task_id, "project_id": project_id,
+                    "cmd": cmd, "api_key": api_key, "api_base": api_base, "default_model": default_model}
+
+        engine.company_executor.vm_message_builder = _build_vm_msg
+
     # ── Store references for cleanup ──────────────────────────────────
     app["engine"] = engine
     app["db"] = db

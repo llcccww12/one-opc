@@ -371,6 +371,7 @@ class OPCEngine:
         # Core infrastructure
         self.event_bus = EventBus()
         self.worker_registry = WorkerConnectionRegistry()
+        self.tenant_vm_service: Any | None = None
         self.store: OPCStore | None = store
         self._owns_store = bool(owns_store)
         self._run_startup_reconcile = bool(run_startup_reconcile)
@@ -668,6 +669,7 @@ class OPCEngine:
             emit_runtime_event=self._emit_company_runtime_event,
             work_item_timeout=self.config.system.task_mode.sub_agent_timeout_sec,
             role_prompt_runner=self._run_role_prompt_via_task_execution_agent,
+            worker_registry=self.worker_registry,
         )
         self.communication.set_meeting_turn_runner(self._run_meeting_turn)
         self.reorg_manager = ReorgManager(

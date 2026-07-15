@@ -1333,6 +1333,10 @@ class CompanyWorkItemExecutor:
         store: Any | None = None,
         llm: Any | None = None,
         role_prompt_runner: Callable[[Task, str, dict[str, Any], str, bool], Awaitable[str | None]] | None = None,
+        worker_registry: Any | None = None,
+        tenant_vm_service: Any | None = None,
+        vm_user_id_resolver: Callable[[Task], Awaitable[str | None]] | None = None,
+        vm_message_builder: Callable[[str, str, str], dict[str, Any] | None] | None = None,
     ) -> None:
         self.org_engine = org_engine
         self.communication = communication
@@ -1352,6 +1356,10 @@ class CompanyWorkItemExecutor:
         self.on_kanban_changed = on_kanban_changed
         self.work_item_timeout = work_item_timeout
         self.role_prompt_runner = role_prompt_runner
+        self.worker_registry = worker_registry
+        self.tenant_vm_service = tenant_vm_service
+        self.vm_user_id_resolver = vm_user_id_resolver
+        self.vm_message_builder = vm_message_builder
         self._default_run_state = CompanyExecutorRunState()
         self._run_state_var: ContextVar[CompanyExecutorRunState | None] = ContextVar(
             f"company-executor-run-state:{id(self)}",
@@ -4985,6 +4993,62 @@ class CompanyWorkItemExecutor:
         }
         return None
 
+    async def _try_vm_dispatch(self, task: Task) -> TaskResult | None:
+        """Attempt to dispatch *task* to a connected cloud VM worker.
+
+        Returns a ``TaskResult`` if the VM handled the task, or ``None`` to
+        fall through to the local seat-executor path.
+        """
+        registry = self.worker_registry
+        vm_service = self.tenant_vm_service
+        resolver = self.vm_user_id_resolver
+        builder = self.vm_message_builder
+        if not registry or not vm_service or not resolver or not builder:
+            return None
+
+        try:
+            user_id = await resolver(task)
+        except Exception:
+            return None
+        if not user_id or not registry.is_connected(user_id):
+            return None
+        try:
+            vm_status = await vm_service.get_status(user_id)
+            if vm_status.get("status") != "ready":
+                return None
+        except Exception:
+            return None
+
+        content = f"{task.title}\n{task.description}".strip()
+        message = builder(task.id, task.project_id or "default", content)
+        if message is None:
+            return None
+
+        async def _on_progress(text: str) -> None:
+            if self.progress_callback:
+                try:
+                    await self.progress_callback(task.id, text)
+                except Exception:
+                    pass
+
+        try:
+            outcome = await registry.dispatch_run_task(
+                user_id, task.id, message, _on_progress, float(self.work_item_timeout),
+            )
+        except Exception:
+            return None
+        if outcome is None:
+            return None
+
+        output = outcome.stdout or ""
+        if outcome.returncode == 0:
+            return TaskResult(status=TaskStatus.DONE, content=output)
+        stderr = outcome.stderr or ""
+        return TaskResult(
+            status=TaskStatus.FAILED,
+            content=f"VM worker exited with code {outcome.returncode}\n{stderr}\n{output}",
+        )
+
     async def _run_work_item(
         self,
         task: Task,
@@ -5091,93 +5155,98 @@ class CompanyWorkItemExecutor:
             )
             await self.save_task(task)
 
-            try:
-                result = await asyncio.wait_for(
-                    (
-                        self.seat_executor.run_turn(task, member_session=member_session)
-                        if self.seat_executor is not None
-                        else self.execute_task(task)
-                    ),
-                    timeout=self.work_item_timeout,
-                )
-            except asyncio.CancelledError:
-                task.metadata = dict(task.metadata or {})
-                task.metadata["company_runtime_suspended_at"] = datetime.now().isoformat()
-                task.metadata.setdefault("last_stop_reason", "runtime_cancelled")
-                task.metadata["company_runtime_stop_state"] = "suspended"
-                task.metadata["company_runtime_stop_marked_at"] = (
-                    task.metadata.get("company_runtime_stop_marked_at") or datetime.now().isoformat()
-                )
-                task.metadata.setdefault(
-                    "suspended_task_status",
-                    task.status.value if isinstance(task.status, TaskStatus) else str(task.status or ""),
-                )
-                work_item_id = linked_work_item_id_for_task(task)
-                store_ready = self._store_is_ready(self.store)
-                if work_item_id and self.store and store_ready:
-                    task.metadata.pop("progress_log", None)
-                    await append_work_item_progress(
-                        self.store,
-                        work_item_id,
-                        "Work item suspended by runtime cancellation.",
-                    )
-                else:
-                    progress = list(task.metadata.get("progress_log", []) or [])
-                    progress.append("Work item suspended by runtime cancellation.")
-                    task.metadata["progress_log"] = progress[-20:]
+            # ── VM dispatch: try cloud worker before local seat executor ──
+            vm_result = await self._try_vm_dispatch(task)
+            if vm_result is not None:
+                result = vm_result
+            else:
                 try:
-                    work_item = (
-                        await self.store.get_delegation_work_item(work_item_id)
-                        if work_item_id and store_ready and hasattr(self.store, "get_delegation_work_item")
-                        else None
+                    result = await asyncio.wait_for(
+                        (
+                            self.seat_executor.run_turn(task, member_session=member_session)
+                            if self.seat_executor is not None
+                            else self.execute_task(task)
+                        ),
+                        timeout=self.work_item_timeout,
                     )
-                    if work_item is not None and getattr(work_item, "phase", None) not in {Phase.APPROVED, Phase.FAILED, Phase.CANCELLED}:
-                        phase = getattr(work_item, "phase", Phase.RUNNING)
-                        phase_value = phase.value if isinstance(phase, Phase) else str(phase or "")
-                        original_claim = {
-                            "claimed_by_role_runtime_session_id": str(getattr(work_item, "claimed_by_role_runtime_session_id", "") or ""),
-                            "claimed_by_seat_id": str(getattr(work_item, "claimed_by_seat_id", "") or ""),
-                            "claimed_by_role_session_id": str((getattr(work_item, "metadata", {}) or {}).get("claimed_by_role_session_id", "") or ""),
-                            "claimed_task_id": str((getattr(work_item, "metadata", {}) or {}).get("claimed_task_id", "") or task.id),
-                        }
-                        await self.store.update_delegation_work_item(
+                except asyncio.CancelledError:
+                    task.metadata = dict(task.metadata or {})
+                    task.metadata["company_runtime_suspended_at"] = datetime.now().isoformat()
+                    task.metadata.setdefault("last_stop_reason", "runtime_cancelled")
+                    task.metadata["company_runtime_stop_state"] = "suspended"
+                    task.metadata["company_runtime_stop_marked_at"] = (
+                        task.metadata.get("company_runtime_stop_marked_at") or datetime.now().isoformat()
+                    )
+                    task.metadata.setdefault(
+                        "suspended_task_status",
+                        task.status.value if isinstance(task.status, TaskStatus) else str(task.status or ""),
+                    )
+                    work_item_id = linked_work_item_id_for_task(task)
+                    store_ready = self._store_is_ready(self.store)
+                    if work_item_id and self.store and store_ready:
+                        task.metadata.pop("progress_log", None)
+                        await append_work_item_progress(
+                            self.store,
                             work_item_id,
-                            metadata_updates={
-                                "dispatch_hold": "company_runtime_suspended",
-                                "suspended_at": datetime.now().isoformat(),
-                                "suspend_reason": task.metadata.get("last_stop_reason", "runtime_cancelled"),
-                                "suspended_phase": phase_value,
-                                "suspended_task_status": task.metadata.get("suspended_task_status", ""),
-                                "suspended_claim": original_claim,
-                                "claimed_by_role_session_id": "",
-                                "claimed_task_id": "",
-                            },
-                            claimed_by_role_runtime_session_id="",
-                            claimed_by_seat_id="",
+                            "Work item suspended by runtime cancellation.",
                         )
-                        task.metadata["dispatch_hold"] = "company_runtime_suspended"
-                        task.metadata["suspended_phase"] = phase_value
-                        task.status = task_status_for_phase(phase) if isinstance(phase, Phase) else task.status
-                except Exception:
-                    logger.opt(exception=True).debug(
-                        "company runtime cancellation: failed to apply suspend hold",
+                    else:
+                        progress = list(task.metadata.get("progress_log", []) or [])
+                        progress.append("Work item suspended by runtime cancellation.")
+                        task.metadata["progress_log"] = progress[-20:]
+                    try:
+                        work_item = (
+                            await self.store.get_delegation_work_item(work_item_id)
+                            if work_item_id and store_ready and hasattr(self.store, "get_delegation_work_item")
+                            else None
+                        )
+                        if work_item is not None and getattr(work_item, "phase", None) not in {Phase.APPROVED, Phase.FAILED, Phase.CANCELLED}:
+                            phase = getattr(work_item, "phase", Phase.RUNNING)
+                            phase_value = phase.value if isinstance(phase, Phase) else str(phase or "")
+                            original_claim = {
+                                "claimed_by_role_runtime_session_id": str(getattr(work_item, "claimed_by_role_runtime_session_id", "") or ""),
+                                "claimed_by_seat_id": str(getattr(work_item, "claimed_by_seat_id", "") or ""),
+                                "claimed_by_role_session_id": str((getattr(work_item, "metadata", {}) or {}).get("claimed_by_role_session_id", "") or ""),
+                                "claimed_task_id": str((getattr(work_item, "metadata", {}) or {}).get("claimed_task_id", "") or task.id),
+                            }
+                            await self.store.update_delegation_work_item(
+                                work_item_id,
+                                metadata_updates={
+                                    "dispatch_hold": "company_runtime_suspended",
+                                    "suspended_at": datetime.now().isoformat(),
+                                    "suspend_reason": task.metadata.get("last_stop_reason", "runtime_cancelled"),
+                                    "suspended_phase": phase_value,
+                                    "suspended_task_status": task.metadata.get("suspended_task_status", ""),
+                                    "suspended_claim": original_claim,
+                                    "claimed_by_role_session_id": "",
+                                    "claimed_task_id": "",
+                                },
+                                claimed_by_role_runtime_session_id="",
+                                claimed_by_seat_id="",
+                            )
+                            task.metadata["dispatch_hold"] = "company_runtime_suspended"
+                            task.metadata["suspended_phase"] = phase_value
+                            task.status = task_status_for_phase(phase) if isinstance(phase, Phase) else task.status
+                    except Exception:
+                        logger.opt(exception=True).debug(
+                            "company runtime cancellation: failed to apply suspend hold",
+                        )
+                    if self.save_task and self._store_is_ready(self.store):
+                        await self.save_task(task)
+                    raise
+                except asyncio.TimeoutError:
+                    logger.error(f"Company work item {projection_id} timed out after {self.work_item_timeout}s")
+                    await self._emit_progress(
+                        f"[Company:{projection_id}] timed out after {self.work_item_timeout}s",
+                        task_id=task.id,
                     )
-                if self.save_task and self._store_is_ready(self.store):
+                    await transition_work_item_from_task(
+                        self.store, task,
+                        target_status_or_phase=Phase.FAILED,
+                        reason="work_item_timeout",
+                    )
                     await self.save_task(task)
-                raise
-            except asyncio.TimeoutError:
-                logger.error(f"Company work item {projection_id} timed out after {self.work_item_timeout}s")
-                await self._emit_progress(
-                    f"[Company:{projection_id}] timed out after {self.work_item_timeout}s",
-                    task_id=task.id,
-                )
-                await transition_work_item_from_task(
-                    self.store, task,
-                    target_status_or_phase=Phase.FAILED,
-                    reason="work_item_timeout",
-                )
-                await self.save_task(task)
-                return TaskResult(status=TaskStatus.FAILED, content=f"Work item timed out after {self.work_item_timeout}s.")
+                    return TaskResult(status=TaskStatus.FAILED, content=f"Work item timed out after {self.work_item_timeout}s.")
             stale_result = await self._reject_stale_work_item_revision_result(task, result)
             if stale_result is not None:
                 return stale_result

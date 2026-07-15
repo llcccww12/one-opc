@@ -4262,6 +4262,7 @@ class WSHandler:
         org_id = self._normalize_session_org_id(data.get("org_id") or data.get("organization_id"))
         task_id = data.get("task_id")
         run_engine, run_project_id = await self._engine_for_request(data)
+        user_id = self._client_user_ids.get(ws)
         self._track(self._run_task(
             title,
             description,
@@ -4271,6 +4272,7 @@ class WSHandler:
             run_engine=run_engine,
             run_project_id=run_project_id,
             org_id=org_id,
+            user_id=user_id,
         ))
         await self._send_ack(ws, ok=True)
 
@@ -4806,6 +4808,87 @@ class WSHandler:
             return "org", "custom"
         return "project", None
 
+    # ── VM dispatch helpers ────────────────────────────────────────────
+
+    async def _should_dispatch_to_vm(self, user_id: str | None) -> bool:
+        """Check if task should be dispatched to a connected cloud VM."""
+        if not user_id:
+            return False
+        registry = getattr(self.engine, "worker_registry", None)
+        vm_service = getattr(self.engine, "tenant_vm_service", None)
+        if not registry or not vm_service:
+            return False
+        if not registry.is_connected(user_id):
+            return False
+        try:
+            vm_status = await vm_service.get_status(user_id)
+            return vm_status.get("status") == "ready"
+        except Exception:
+            return False
+
+    async def _dispatch_to_vm(
+        self,
+        user_id: str,
+        task_id: str | None,
+        message: dict[str, Any],
+        on_progress: Any | None = None,
+        timeout: float = 3600,
+    ) -> Any | None:
+        """Dispatch task to a connected worker VM. Returns WorkerTaskOutcome or None on timeout."""
+        registry = self.engine.worker_registry
+        return await registry.dispatch_run_task(
+            user_id, task_id or "", message, on_progress, timeout,
+        )
+
+    def _build_vm_run_message(
+        self,
+        task_id: str,
+        project_id: str,
+        content: str,
+    ) -> dict[str, Any] | None:
+        """Build the run_task message dict for WorkerRuntime, or None if adapter/LLM unavailable."""
+        engine = self.engine
+        adapter_registry = getattr(engine, "adapter_registry", None)
+        if not adapter_registry:
+            return None
+        adapter = adapter_registry.get("claude_code")
+        if not adapter:
+            return None
+
+        # Build a minimal Task-like object for the adapter's build_invocation.
+        from opc.core.models import Task as _Task, TaskStatus as _TS
+        stub_task = _Task(
+            id=task_id or "vm-dispatch",
+            title=content[:200],
+            description=content,
+            status=_TS.PENDING,
+            project_id=project_id,
+        )
+
+        try:
+            cmd, _metadata = adapter.build_invocation(stub_task, workspace_path=None)
+        except Exception:
+            return None
+
+        llm = getattr(engine, "llm", None)
+        api_key = ""
+        api_base = ""
+        default_model = ""
+        if llm:
+            api_key = str(getattr(llm, "_api_key", "") or "")
+            api_base = str(getattr(llm, "_api_base", "") or "")
+            default_model = str(getattr(llm, "config", None) and llm.config.default_model or "")
+
+        return {
+            "type": "run_task",
+            "task_id": task_id,
+            "project_id": project_id,
+            "cmd": cmd,
+            "api_key": api_key,
+            "api_base": api_base,
+            "default_model": default_model,
+        }
+
     async def _run_task(
         self,
         title: str,
@@ -4817,6 +4900,7 @@ class WSHandler:
         run_engine: Any | None = None,
         run_project_id: str | None = None,
         org_id: str | None = None,
+        user_id: str | None = None,
     ) -> None:
         """Execute a task with the selected mode."""
         engine = run_engine or self.engine
@@ -4886,16 +4970,49 @@ class WSHandler:
                                 )
                         except Exception:
                             logger.opt(exception=True).debug("failed to mark run_task company runtime running")
-                    response = await engine.process_message(
-                        content,
-                        project_id=pid,
-                        session_id=session_id,
-                        mode=engine_mode,
-                        org_id=session_org_id or None,
-                        company_profile=company_profile,
-                        preferred_agent=engine_preferred_agent,
-                        origin_task_id=task_id,
-                    )
+                    # ── VM dispatch: try cloud worker before local engine ──
+                    if await self._should_dispatch_to_vm(user_id):
+                        vm_msg = self._build_vm_run_message(task_id or "", pid, content)
+                        if vm_msg is not None:
+                            async def _on_vm_progress(text: str) -> None:
+                                await self.broadcast({"type": "task_progress", "payload": {
+                                    "task_id": task_id, "project_id": pid, "text": text,
+                                }})
+
+                            outcome = await self._dispatch_to_vm(
+                                user_id, task_id, vm_msg,
+                                on_progress=_on_vm_progress,
+                            )
+                            if outcome is not None:
+                                # VM handled the task — convert outcome to a response string
+                                response = outcome.stdout or ""
+                                if outcome.returncode != 0 and outcome.stderr:
+                                    response = (response + "\n" + outcome.stderr).strip()
+                                # Insert response as a chat message so the UI shows it
+                                if response:
+                                    resp_channel = f"session:{task_id}" if task_id else f"activity:{pid}"
+                                    msg = await self.chat_store.insert_message(
+                                        channel_id=resp_channel,
+                                        sender="agent",
+                                        sender_name="Agent",
+                                        content=response,
+                                        metadata={"task_id": task_id} if task_id else None,
+                                        project_id=pid,
+                                    )
+                                    await self.broadcast({"type": "session_message", "payload": msg})
+                                # Fall through to post-execution status updates below
+                            # outcome is None → timeout/disconnect, fall through to local
+                    if response is None:
+                        response = await engine.process_message(
+                            content,
+                            project_id=pid,
+                            session_id=session_id,
+                            mode=engine_mode,
+                            org_id=session_org_id or None,
+                            company_profile=company_profile,
+                            preferred_agent=engine_preferred_agent,
+                            origin_task_id=task_id,
+                        )
                 await self._sync_task_transcript_messages(task_id, engine=engine)
             else:
                 response = await engine.process_message(
