@@ -10253,7 +10253,7 @@ class WSHandler:
             await self._send_service_error(ws, exc, action="review_decision")
         except Exception as exc:
             logger.warning(f"Failed to handle review decision: {exc}")
-            await self._send_ack(ws, ok=False, error=str(exc))
+            await self._send_ack(ws, ok=False, error="internal error processing review decision")
 
     # Register handlers defined after _HANDLERS class-level dict
     _HANDLERS["recovery_action"] = _handle_recovery_action
