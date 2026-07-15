@@ -44,6 +44,7 @@ function infoPairsFromRecord(value: Record<string, unknown> | undefined): Array<
 function ReviewPanel({ task, onDecision }: { task: KanbanTask; onDecision: (workItemId: string, decision: 'approve' | 'reject' | 'rework', feedback?: string) => void }) {
   const [pendingDecision, setPendingDecision] = useState<'reject' | 'rework' | null>(null)
   const [feedback, setFeedback] = useState('')
+  const [submitted, setSubmitted] = useState(false)
 
   const workItemId = task.workItemId ?? task.id
   const roleName = task.workItemRoleName ?? task.reviewOwnerRoleId ?? ''
@@ -51,10 +52,12 @@ function ReviewPanel({ task, onDecision }: { task: KanbanTask; onDecision: (work
   const handleDecision = (decision: 'approve' | 'reject' | 'rework') => {
     if (decision === 'approve') {
       onDecision(workItemId, 'approve')
+      setSubmitted(true)
       return
     }
     if (pendingDecision === decision) {
       onDecision(workItemId, decision, feedback.trim() || undefined)
+      setSubmitted(true)
       setPendingDecision(null)
       setFeedback('')
     } else {
@@ -81,7 +84,7 @@ function ReviewPanel({ task, onDecision }: { task: KanbanTask; onDecision: (work
         </div>
       )}
 
-      {pendingDecision && (
+      {!submitted && pendingDecision && (
         <div className="review-panel-feedback">
           <textarea
             className="review-panel-textarea"
@@ -93,23 +96,29 @@ function ReviewPanel({ task, onDecision }: { task: KanbanTask; onDecision: (work
         </div>
       )}
 
-      <div className="review-panel-actions">
-        <button className="review-panel-btn review-panel-btn--approve" onClick={() => handleDecision('approve')}>
-          {'✓'} 通过
-        </button>
-        <button
-          className={`review-panel-btn review-panel-btn--reject${pendingDecision === 'reject' ? ' active' : ''}`}
-          onClick={() => handleDecision('reject')}
-        >
-          {'✗'} 驳回
-        </button>
-        <button
-          className={`review-panel-btn review-panel-btn--rework${pendingDecision === 'rework' ? ' active' : ''}`}
-          onClick={() => handleDecision('rework')}
-        >
-          {'↺'} 返工
-        </button>
-      </div>
+      {submitted ? (
+        <div className="review-panel-actions">
+          <span className="review-panel-submitted">{'✓'} 已提交</span>
+        </div>
+      ) : (
+        <div className="review-panel-actions">
+          <button className="review-panel-btn review-panel-btn--approve" onClick={() => handleDecision('approve')}>
+            {'✓'} 通过
+          </button>
+          <button
+            className={`review-panel-btn review-panel-btn--reject${pendingDecision === 'reject' ? ' active' : ''}`}
+            onClick={() => handleDecision('reject')}
+          >
+            {'✗'} 驳回
+          </button>
+          <button
+            className={`review-panel-btn review-panel-btn--rework${pendingDecision === 'rework' ? ' active' : ''}`}
+            onClick={() => handleDecision('rework')}
+          >
+            {'↺'} 返工
+          </button>
+        </div>
+      )}
     </div>
   )
 }

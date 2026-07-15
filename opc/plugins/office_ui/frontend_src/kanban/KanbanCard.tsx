@@ -14,7 +14,7 @@ const STATUS_BADGE: Record<string, { label: string; color: string }> = {
   blocked: { label: 'Blocked', color: '#f97316' },
   awaiting_peer: { label: 'Awaiting', color: '#fbbf24' },
   awaiting_manager_review: { label: 'Mgr Review', color: '#fbbf24' },
-  awaiting_human: { label: '人工审核', color: '#f97316' },
+  awaiting_human: { label: '人工审核', color: '#a78bfa' },
   awaiting_review: { label: 'In Review', color: '#fbbf24' },
   failed: { label: 'Failed', color: '#ef4444' },
   cancelled: { label: 'Cancelled', color: '#9ca3af' },
