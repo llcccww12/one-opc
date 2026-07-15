@@ -13,7 +13,9 @@ rebuild session-resume arguments itself.
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -23,6 +25,17 @@ from opc.layer3_agent.adapters.claude_code import ClaudeCodeAdapter
 from opc.layer3_agent.anthropic_env import anthropic_env_for
 
 _RECONNECT_DELAY_SECONDS = 5
+
+
+def _resolve_safe_path(workspace_root: Path, relative_path: str) -> Path:
+    """Resolve relative_path under workspace_root, rejecting any path that
+    would escape it (path traversal, absolute paths, symlinks pointing
+    outward). Every worker-side file operation MUST go through this."""
+    candidate = (workspace_root / relative_path).resolve()
+    root = workspace_root.resolve()
+    if not candidate.is_relative_to(root):
+        raise ValueError("path escapes workspace root")
+    return candidate
 
 
 class WorkerRuntime:
@@ -61,6 +74,12 @@ class WorkerRuntime:
             await self._handle_run_task(ws, data)
         elif msg_type == "cancel_task":
             self._handle_cancel_task(data)
+        elif msg_type == "list_dir":
+            await self._handle_list_dir(ws, data)
+        elif msg_type == "read_file":
+            await self._handle_read_file(ws, data)
+        elif msg_type == "delete_file":
+            await self._handle_delete_file(ws, data)
 
     async def _handle_run_task(self, ws: Any, data: dict) -> None:
         task_id = str(data.get("task_id") or "")
@@ -124,3 +143,71 @@ class WorkerRuntime:
         task_id = str(data.get("task_id") or "")
         if task_id and task_id == self._current_task_id and self._current_process is not None:
             self._current_process.kill()
+
+    async def _handle_list_dir(self, ws: Any, data: dict) -> None:
+        request_id = str(data.get("request_id") or "")
+        workspace_path = self._workspace_root / str(data.get("project_id") or "default")
+        try:
+            target = _resolve_safe_path(workspace_path, str(data.get("path") or ""))
+        except ValueError:
+            await ws.send_json({"type": "dir_listing", "request_id": request_id, "error": "invalid_path"})
+            return
+
+        if not target.exists() or not target.is_dir():
+            await ws.send_json({"type": "dir_listing", "request_id": request_id, "error": "not_found"})
+            return
+
+        entries = []
+        for child in sorted(target.iterdir()):
+            stat_result = child.stat()
+            entries.append({
+                "name": child.name,
+                "is_dir": child.is_dir(),
+                "size": stat_result.st_size,
+                "mtime": stat_result.st_mtime,
+            })
+        await ws.send_json({"type": "dir_listing", "request_id": request_id, "entries": entries})
+
+    async def _handle_read_file(self, ws: Any, data: dict) -> None:
+        request_id = str(data.get("request_id") or "")
+        workspace_path = self._workspace_root / str(data.get("project_id") or "default")
+        try:
+            target = _resolve_safe_path(workspace_path, str(data.get("path") or ""))
+        except ValueError:
+            await ws.send_json({"type": "file_content", "request_id": request_id, "error": "invalid_path"})
+            return
+
+        if not target.exists() or not target.is_file():
+            await ws.send_json({"type": "file_content", "request_id": request_id, "error": "not_found"})
+            return
+
+        content_bytes = target.read_bytes()
+        await ws.send_json({
+            "type": "file_content",
+            "request_id": request_id,
+            "content_base64": base64.b64encode(content_bytes).decode("ascii"),
+        })
+
+    async def _handle_delete_file(self, ws: Any, data: dict) -> None:
+        request_id = str(data.get("request_id") or "")
+        workspace_path = self._workspace_root / str(data.get("project_id") or "default")
+        try:
+            target = _resolve_safe_path(workspace_path, str(data.get("path") or ""))
+        except ValueError:
+            await ws.send_json({"type": "delete_result", "request_id": request_id, "ok": False, "error": "invalid_path"})
+            return
+
+        if not target.exists():
+            await ws.send_json({"type": "delete_result", "request_id": request_id, "ok": False, "error": "not_found"})
+            return
+
+        try:
+            if target.is_dir():
+                shutil.rmtree(target)
+            else:
+                target.unlink()
+        except OSError as exc:
+            await ws.send_json({"type": "delete_result", "request_id": request_id, "ok": False, "error": str(exc)})
+            return
+
+        await ws.send_json({"type": "delete_result", "request_id": request_id, "ok": True})

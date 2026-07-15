@@ -135,5 +135,72 @@ class WorkerRuntimeTests(unittest.IsolatedAsyncioTestCase):
         fake_process.kill.assert_not_called()
 
 
+import base64
+
+
+class WorkerRuntimeFileOpsTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self) -> None:
+        self.workspace_root = Path(tempfile.mkdtemp())
+        self.runtime = WorkerRuntime("http://localhost:8765", "tok", self.workspace_root)
+        self.project_dir = self.workspace_root / "demo"
+        self.project_dir.mkdir(parents=True, exist_ok=True)
+        (self.project_dir / "notes.txt").write_text("hello world")
+        (self.project_dir / "subdir").mkdir()
+
+    async def test_list_dir_returns_entries(self) -> None:
+        ws = AsyncMock()
+        await self.runtime._handle_list_dir(ws, {"request_id": "r1", "project_id": "demo", "path": ""})
+        sent = ws.send_json.await_args.args[0]
+        names = {e["name"] for e in sent["entries"]}
+        self.assertEqual(names, {"notes.txt", "subdir"})
+
+    async def test_list_dir_rejects_path_traversal(self) -> None:
+        ws = AsyncMock()
+        await self.runtime._handle_list_dir(ws, {"request_id": "r1", "project_id": "demo", "path": "../../etc"})
+        sent = ws.send_json.await_args.args[0]
+        self.assertEqual(sent.get("error"), "invalid_path")
+
+    async def test_read_file_returns_base64_content(self) -> None:
+        ws = AsyncMock()
+        await self.runtime._handle_read_file(ws, {"request_id": "r1", "project_id": "demo", "path": "notes.txt"})
+        sent = ws.send_json.await_args.args[0]
+        decoded = base64.b64decode(sent["content_base64"]).decode("utf-8")
+        self.assertEqual(decoded, "hello world")
+
+    async def test_read_file_rejects_path_traversal(self) -> None:
+        ws = AsyncMock()
+        await self.runtime._handle_read_file(ws, {"request_id": "r1", "project_id": "demo", "path": "../../../etc/passwd"})
+        sent = ws.send_json.await_args.args[0]
+        self.assertEqual(sent.get("error"), "invalid_path")
+
+    async def test_read_file_missing_reports_not_found(self) -> None:
+        ws = AsyncMock()
+        await self.runtime._handle_read_file(ws, {"request_id": "r1", "project_id": "demo", "path": "missing.txt"})
+        sent = ws.send_json.await_args.args[0]
+        self.assertEqual(sent.get("error"), "not_found")
+
+    async def test_delete_file_removes_file(self) -> None:
+        ws = AsyncMock()
+        await self.runtime._handle_delete_file(ws, {"request_id": "r1", "project_id": "demo", "path": "notes.txt"})
+        sent = ws.send_json.await_args.args[0]
+        self.assertTrue(sent["ok"])
+        self.assertFalse((self.project_dir / "notes.txt").exists())
+
+    async def test_delete_dir_removes_recursively(self) -> None:
+        (self.project_dir / "subdir" / "nested.txt").write_text("x")
+        ws = AsyncMock()
+        await self.runtime._handle_delete_file(ws, {"request_id": "r1", "project_id": "demo", "path": "subdir"})
+        sent = ws.send_json.await_args.args[0]
+        self.assertTrue(sent["ok"])
+        self.assertFalse((self.project_dir / "subdir").exists())
+
+    async def test_delete_file_rejects_path_traversal(self) -> None:
+        ws = AsyncMock()
+        await self.runtime._handle_delete_file(ws, {"request_id": "r1", "project_id": "demo", "path": "../../etc/passwd"})
+        sent = ws.send_json.await_args.args[0]
+        self.assertFalse(sent["ok"])
+        self.assertEqual(sent["error"], "invalid_path")
+
+
 if __name__ == "__main__":
     unittest.main()
