@@ -10331,7 +10331,7 @@ class WSHandler:
             if work_item is None:
                 raise ServiceError("work_item_not_found", f"work item {work_item_id} not found", {"work_item_id": work_item_id})
 
-            from opc.layer2_organization.phase import Phase, validate_transition
+            from opc.layer2_organization.phase import Phase, kanban_column as _phase_column, validate_transition
             current_phase = getattr(work_item, "phase", None)
             if not isinstance(current_phase, Phase):
                 current_phase = Phase(str(current_phase or Phase.READY.value))
@@ -10362,11 +10362,15 @@ class WSHandler:
                 metadata_updates=metadata_updates,
             )
 
+            col_raw = _phase_column(target_phase)
+            # Frontend expects hyphenated column ids (in-progress, in-review)
+            column_id = col_raw.replace("_", "-")
+            status = "done" if decision == "approve" else ("failed" if decision == "reject" else target_phase.value)
             await self.broadcast({"type": "board_task_status_changed", "payload": {
                 "project_id": project_id,
-                "work_item_id": work_item_id,
-                "phase": target_phase.value,
-                "decision": decision,
+                "task_id": work_item_id,
+                "column_id": column_id,
+                "status": status,
             }})
 
             await self._send_ack(ws, ok=True, action="review_decision", work_item_id=work_item_id, decision=decision, new_phase=target_phase.value)

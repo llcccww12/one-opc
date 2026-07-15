@@ -1257,6 +1257,10 @@ export default function App() {
                 })
               }
             }
+          } else if (type === 'review_required') {
+            const title = String(payload.title ?? payload.work_item_id ?? '')
+            const roleName = String(payload.role_name ?? '')
+            setOrgToast({ kind: 'error', text: `⚠ 审核请求: ${title}${roleName ? ` (${roleName})` : ''} 需要人工审核` })
           } else if (type === 'execution_mode_resolved') {
             const mode = String(payload.mode ?? '')
             const profile = String(payload.profile ?? '')
