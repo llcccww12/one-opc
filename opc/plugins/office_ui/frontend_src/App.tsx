@@ -3,6 +3,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { VisualSocketClient } from './lib/wsClient'
 import { getStoredToken, clearSession } from './lib/auth'
+import { getVmStatus, type VmStatus } from './lib/vm'
 import { IdentityMenu } from './auth/IdentityMenu'
 import { NodesPanel } from './nodes/NodesPanel'
 import type { NodeCluster } from './nodes/NodesPanel'
@@ -22,6 +23,7 @@ import { useSessionStore, type SessionStoreState } from './stores/SessionStore'
 import { useProjectStore, type ProjectStoreState } from './stores/ProjectStore'
 import { ExecutionPanel } from './kanban/ExecutionPanel'
 import { ProjectSelector } from './components/ProjectSelector'
+import { IconSignal, IconCloud, IconKey } from './components/StatusIcons'
 import { OrgTab } from './org/OrgTab'
 import { notifyTaskAssigned } from './lib/taskChatBridge'
 import { mapCollabSyncPayload, mapBackendMessage, mapBackendChannel, mapBackendSession, mapBackendBoard, mapBackendColumn, mapBackendTask } from './lib/collabSync'
@@ -89,6 +91,23 @@ function statusClass(status: SocketStatus): string {
   if (status === 'error') return 'error'
   return 'off'
 }
+
+function vmStatusClass(status: VmStatus['status'] | undefined): string {
+  if (status === 'ready') return 'ok'
+  if (status === 'launching') return 'warn'
+  if (status === 'error') return 'error'
+  return ''
+}
+
+function vmStatusLabel(vmStatus: VmStatus | null): string {
+  if (!vmStatus || vmStatus.status === 'none') return '未绑定云主机'
+  if (vmStatus.status === 'ready') return '云主机：就绪'
+  if (vmStatus.status === 'launching') return '云主机：准备中'
+  if (vmStatus.status === 'stopped') return '云主机：已停止'
+  return `云主机：出错${vmStatus.error_message ? ` — ${vmStatus.error_message}` : ''}`
+}
+
+const VM_STATUS_POLL_MS = 30000
 
 function normalizeCompanyProfile(value?: string): 'corporate' | 'custom' {
   return normalizeSessionCompanyProfile(value)
@@ -455,6 +474,7 @@ export default function App() {
   const bridgeRef = useRef(new GameBridge())
   useMemo(() => registerTestRunner(bridgeRef.current), [])
   const clientRef = useRef<VisualSocketClient | null>(null)
+  const llmConfigRequestedRef = useRef(false)
 
   const initialUrl = defaultWsUrl()
 
@@ -462,6 +482,7 @@ export default function App() {
   const [wsUrlInput, setWsUrlInput] = useState(initialUrl)
   const [status, setStatus] = useState<SocketStatus>('disconnected')
   const [statusDetail, setStatusDetail] = useState('')
+  const [vmStatus, setVmStatus] = useState<VmStatus | null>(null)
   const [snapshot, setSnapshot] = useState<VisualSnapshot | null>(null)
   const [events, setEvents] = useState<VisualEvent[]>([])
   const [uiTick, setUiTick] = useState(0)
@@ -534,6 +555,16 @@ export default function App() {
   useEffect(() => {
     if (activePage === 'nodes') clientRef.current?.listNodes()
   }, [activePage])
+  useEffect(() => {
+    const poll = () => {
+      const token = getStoredToken()
+      if (!token) return
+      getVmStatus(token).then(setVmStatus)
+    }
+    poll()
+    const interval = setInterval(poll, VM_STATUS_POLL_MS)
+    return () => clearInterval(interval)
+  }, [])
   const timersRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set())
   const replayedEventIds = useRef<Set<string>>(new Set())
   const swarmAgentsRef = useRef<AgentInfo[]>([])
@@ -793,6 +824,10 @@ export default function App() {
     const client = new VisualSocketClient(wsUrl, {
       onSnapshot: (data) => {
         if (!payloadMatchesCurrentSwitch(data as unknown as Record<string, unknown>)) return
+        if (!llmConfigRequestedRef.current) {
+          llmConfigRequestedRef.current = true
+          clientRef.current?.getLlmConfig()
+        }
         setSnapshot(data)
         const timeline = data.timeline.slice(-MAX_LOG_ITEMS)
         setEvents(timeline)
@@ -2300,7 +2335,18 @@ export default function App() {
       <nav className={`rail${railExpanded ? ' expanded' : ''}`}>
         <div className="rail-top">
           <span className="rail-logo" title="OpenOPC">O</span>
-          <div className={`conn-dot ${statusClass(status)}`} title={`${status}${statusDetail ? ` — ${statusDetail}` : ''}\n${wsUrl}`} />
+          <div className={`status-indicator ${statusClass(status)}`} title={`${status}${statusDetail ? ` — ${statusDetail}` : ''}\n${wsUrl}`}>
+            <IconSignal />
+            <span className="status-dot" />
+          </div>
+          <div className={`status-indicator ${vmStatusClass(vmStatus?.status)}`} title={vmStatusLabel(vmStatus)}>
+            <IconCloud />
+            <span className="status-dot" />
+          </div>
+          <div className={`status-indicator ${llmConfig?.api_key_set ? 'ok' : 'warn'}`} title={llmConfig?.api_key_set ? `LLM API Key: 已配置\nBase: ${llmConfig.api_base || '(default)'}` : 'LLM API Key: 未配置'}>
+            <IconKey />
+            <span className="status-dot" />
+          </div>
         </div>
         <div className="rail-nav">
           <button className={`rail-btn${activePage === 'workspace' ? ' active' : ''}`} onClick={() => setActivePage('workspace')} title="Workspace">
@@ -2377,6 +2423,12 @@ export default function App() {
               <span className="stat-chip"><b>{metrics.totalAgents}</b> agents</span>
               <span className="stat-chip"><b>{metrics.totalSkills}</b> skills</span>
               <span className="stat-chip"><b>{boardStore.getOpenTaskCount()}</b> tasks</span>
+              <span
+                className="stat-chip"
+                title={llmConfig?.api_key_set ? `Base: ${llmConfig.api_base || '(default)'}` : '未配置 API Key —— 点击左下角头像进入设置'}
+              >
+                {llmConfig?.api_key_set ? '✓' : '✗'} {llmConfig?.default_model || '未设置模型'}
+              </span>
             </div>
           </div>
           <div className="main-header-right">
