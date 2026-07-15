@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import type { KanbanTask, Session } from '../types/kanban'
 import type { ChatMessage, CheckpointReplyMetadata } from '../types/chat'
 import { AGENT_STATUS_LABEL, PRIORITY_META } from '../types/kanban'
@@ -15,6 +15,7 @@ interface TaskDetailViewProps {
   onOpenLinkedSession?: (taskId: string) => void
   onOpenExecutionPanel?: (taskId: string) => void
   onSend?: (content: string, taskId?: string, metadata?: CheckpointReplyMetadata) => void
+  onReviewDecision?: (workItemId: string, decision: 'approve' | 'reject' | 'rework', feedback?: string) => void
 }
 
 function prettyJson(value: unknown): string {
@@ -40,6 +41,79 @@ function infoPairsFromRecord(value: Record<string, unknown> | undefined): Array<
     })
 }
 
+function ReviewPanel({ task, onDecision }: { task: KanbanTask; onDecision: (workItemId: string, decision: 'approve' | 'reject' | 'rework', feedback?: string) => void }) {
+  const [pendingDecision, setPendingDecision] = useState<'reject' | 'rework' | null>(null)
+  const [feedback, setFeedback] = useState('')
+
+  const workItemId = task.workItemId ?? task.id
+  const roleName = task.workItemRoleName ?? task.reviewOwnerRoleId ?? ''
+
+  const handleDecision = (decision: 'approve' | 'reject' | 'rework') => {
+    if (decision === 'approve') {
+      onDecision(workItemId, 'approve')
+      return
+    }
+    if (pendingDecision === decision) {
+      onDecision(workItemId, decision, feedback.trim() || undefined)
+      setPendingDecision(null)
+      setFeedback('')
+    } else {
+      setPendingDecision(decision)
+      setFeedback('')
+    }
+  }
+
+  return (
+    <div className="review-panel">
+      <div className="review-panel-header">
+        <span className="review-panel-icon">{'⏳'}</span>
+        <span className="review-panel-title">等待人工审核</span>
+        {roleName && <span className="review-panel-role">{roleName}</span>}
+      </div>
+
+      {task.reviewVerdict && (
+        <div className="review-panel-verdict">
+          <span className="review-panel-verdict-label">Agent verdict:</span>
+          <span className={`review-panel-verdict-value verdict-${task.reviewVerdict}`}>
+            {task.reviewVerdict}
+          </span>
+          {task.reviewSummary && <span className="review-panel-verdict-summary">{task.reviewSummary}</span>}
+        </div>
+      )}
+
+      {pendingDecision && (
+        <div className="review-panel-feedback">
+          <textarea
+            className="review-panel-textarea"
+            placeholder={pendingDecision === 'reject' ? '驳回原因（可选）...' : '返工要求（可选）...'}
+            value={feedback}
+            onChange={e => setFeedback(e.target.value)}
+            rows={3}
+          />
+        </div>
+      )}
+
+      <div className="review-panel-actions">
+        <button className="review-panel-btn review-panel-btn--approve" onClick={() => handleDecision('approve')}>
+          {'✓'} 通过
+        </button>
+        <button
+          className={`review-panel-btn review-panel-btn--reject${pendingDecision === 'reject' ? ' active' : ''}`}
+          onClick={() => handleDecision('reject')}
+        >
+          {'✗'} 驳回
+        </button>
+        <button
+          className={`review-panel-btn review-panel-btn--rework${pendingDecision === 'rework' ? ' active' : ''}`}
+          onClick={() => handleDecision('rework')}
+        >
+          {'↺'} 返工
+        </button>
+      </div>
+    </div>
+  )
+}
+
 export function TaskDetailView({
   task,
   linkedSession,
@@ -49,6 +123,7 @@ export function TaskDetailView({
   onOpenLinkedSession,
   onOpenExecutionPanel,
   onSend,
+  onReviewDecision,
 }: TaskDetailViewProps) {
   const liveAssignees = useMemo(() => (
     task.assigneeIds
@@ -119,6 +194,13 @@ export function TaskDetailView({
           </span>
         </div>
       </div>
+
+      {task.phase === 'awaiting_human' && onReviewDecision && (
+        <ReviewPanel
+          task={task}
+          onDecision={onReviewDecision}
+        />
+      )}
 
       {runtimeActive && (
         <div className={`task-detail-runtime status-${task.agentStatus}`}>
