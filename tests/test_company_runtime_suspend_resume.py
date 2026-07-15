@@ -249,6 +249,97 @@ class CompanyRuntimeSuspendResumeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(refreshed_item.metadata.get("dispatch_hold"), "")
         self.assertEqual(refreshed_item.claimed_by_role_runtime_session_id, "")
 
+    async def test_continue_resumes_suspended_runtime_despite_pending_child_human_gate(self) -> None:
+        # Regression for: a work item was already parked in awaiting_human
+        # (a pending task_user_input checkpoint on a child work-item session)
+        # when the user hit Stop on the whole runtime. Clicking Continue sets
+        # ui_force_resume and must resume the suspended runtime itself, not
+        # get redirected to "answer" the unrelated pending human question
+        # with the literal button text.
+        store = await self._store()
+        plan, task = await self._seed_runtime(store)
+        gate_item = DelegationWorkItem(
+            work_item_id="work-item-gate",
+            run_id="run-1",
+            role_id="reviewer",
+            seat_id="seat-2",
+            title="Review",
+            kind="review",
+            projection_id="review",
+            phase=Phase.AWAITING_HUMAN,
+            metadata={"work_item_projection_id": "review", "runtime_model": "multi_team_org"},
+        )
+        await store.save_delegation_work_item(gate_item)
+        gate_task = Task(
+            id="review-task",
+            title="Review",
+            session_id="sess-parent:gate",
+            parent_session_id="sess-parent",
+            status=TaskStatus.AWAITING_HUMAN,
+            project_id="proj1",
+            assigned_to="reviewer",
+            metadata={
+                "work_item_projection_id": "review",
+                "runtime_model": "multi_team_org",
+                "company_work_item_plan": serialize_company_work_item_runtime_plan(plan),
+            },
+        )
+        set_linked_work_item_id(gate_task, "work-item-gate")
+        await store.save_task(gate_task)
+        await store.link_work_item_runtime_task("work-item-gate", gate_task.id)
+        gate_checkpoint = ExecutionCheckpoint(
+            checkpoint_id="cp-gate",
+            project_id="proj1",
+            session_id=gate_task.session_id,
+            task_id=gate_task.id,
+            checkpoint_type="task_user_input",
+            payload={
+                "task_id": gate_task.id,
+                "session_id": gate_task.session_id,
+                "pause_request": {"reason": "Need reviewer input"},
+            },
+        )
+        await store.save_execution_checkpoint(gate_checkpoint)
+
+        engine = self._engine(store)
+        await engine.suspend_company_runtime(
+            origin_task_id=task.id,
+            session_id="sess-parent",
+            reason="user_stop",
+        )
+        captured: dict[str, Any] = {}
+
+        class DummyCompanyExecutor:
+            async def execute(self, plan: CompanyWorkItemRuntimePlan, tasks: list[Task]) -> str:
+                captured["tasks"] = tasks
+                return "runtime resumed"
+
+        engine.company_executor = DummyCompanyExecutor()
+
+        response = await engine._maybe_resume_checkpoint(
+            "continue",
+            "sess-parent",
+            reply_metadata={"ui_force_resume": True},
+        )
+
+        self.assertIsNotNone(response)
+        assert response is not None
+        self.assertIn("Resuming the suspended company runtime", response)
+        self.assertIn("tasks", captured)
+
+        refreshed_gate_checkpoint = None
+        for cp in await store.get_execution_checkpoints("proj1"):
+            if cp.checkpoint_id == "cp-gate":
+                refreshed_gate_checkpoint = cp
+        assert refreshed_gate_checkpoint is not None
+        self.assertEqual(refreshed_gate_checkpoint.status, "pending")
+        refreshed_gate_task = await store.get_task("review-task")
+        assert refreshed_gate_task is not None
+        self.assertNotEqual(
+            refreshed_gate_task.context_snapshot.get("user_supplied_input"),
+            "continue",
+        )
+
     async def test_text_after_stop_routes_to_final_decider_instead_of_plain_resume(self) -> None:
         store = await self._store()
         _, task = await self._seed_runtime(store)

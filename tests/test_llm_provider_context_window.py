@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 import os
 import unittest
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 
 from opc.core.config import LLMConfig
 from opc.llm.provider import LLMProvider
@@ -131,6 +133,63 @@ class TestLLMProviderContextWindow(unittest.TestCase):
         with patch("opc.llm.provider.litellm.get_model_info", return_value={"max_input_tokens": 128000}) as get_model_info:
             self.assertEqual(provider.get_context_window(), 50000)
             get_model_info.assert_not_called()
+
+
+def _fake_completion_response(content: str = "hi") -> SimpleNamespace:
+    return SimpleNamespace(
+        usage=None,
+        choices=[SimpleNamespace(finish_reason="stop", message=SimpleNamespace(content=content, tool_calls=None))],
+    )
+
+
+class TestLLMProviderTemperatureFallback(unittest.TestCase):
+    """Some Bedrock-hosted Claude models (extended thinking always on) reject
+    any temperature != 1. chat()/chat_stream() should retry once at temperature=1
+    and remember the model so later calls skip the failing round trip."""
+
+    _TEMPERATURE_ERROR = Exception(
+        "litellm.BadRequestError: AnthropicException - "
+        'b\'{"error":{"type":"aws_invoke_error","message":"ValidationException: '
+        "`temperature` is deprecated for this model.\"},\"type\":\"error\"}'"
+    )
+
+    def test_retries_with_temperature_1_when_model_rejects_temperature(self) -> None:
+        provider = LLMProvider(LLMConfig(default_model="claude-sonnet-5", temperature=0.3))
+        mock_acompletion = AsyncMock(side_effect=[self._TEMPERATURE_ERROR, _fake_completion_response()])
+
+        with patch("opc.llm.provider.litellm.acompletion", mock_acompletion), \
+             patch("opc.llm.provider.litellm.get_model_info", return_value={}):
+            result = asyncio.run(provider.chat(messages=[{"role": "user", "content": "hi"}]))
+
+        self.assertEqual(result["content"], "hi")
+        self.assertEqual(mock_acompletion.call_count, 2)
+        self.assertEqual(mock_acompletion.call_args_list[0].kwargs["temperature"], 0.3)
+        self.assertEqual(mock_acompletion.call_args_list[1].kwargs["temperature"], 1)
+        self.assertIn("claude-sonnet-5", provider._temperature_unsupported_models)
+
+    def test_remembered_model_skips_straight_to_temperature_1(self) -> None:
+        provider = LLMProvider(LLMConfig(default_model="claude-sonnet-5", temperature=0.3))
+        provider._temperature_unsupported_models.add("claude-sonnet-5")
+        mock_acompletion = AsyncMock(return_value=_fake_completion_response())
+
+        with patch("opc.llm.provider.litellm.acompletion", mock_acompletion), \
+             patch("opc.llm.provider.litellm.get_model_info", return_value={}):
+            asyncio.run(provider.chat(messages=[{"role": "user", "content": "hi"}]))
+
+        self.assertEqual(mock_acompletion.call_count, 1)
+        self.assertEqual(mock_acompletion.call_args.kwargs["temperature"], 1)
+
+    def test_unrelated_error_is_not_retried(self) -> None:
+        provider = LLMProvider(LLMConfig(default_model="claude-sonnet-5", temperature=0.3))
+        mock_acompletion = AsyncMock(side_effect=Exception("litellm.RateLimitError: too many requests"))
+
+        with patch("opc.llm.provider.litellm.acompletion", mock_acompletion), \
+             patch("opc.llm.provider.litellm.get_model_info", return_value={}):
+            with self.assertRaises(Exception):
+                asyncio.run(provider.chat(messages=[{"role": "user", "content": "hi"}]))
+
+        self.assertEqual(mock_acompletion.call_count, 1)
+        self.assertEqual(provider._temperature_unsupported_models, set())
 
 
 if __name__ == "__main__":

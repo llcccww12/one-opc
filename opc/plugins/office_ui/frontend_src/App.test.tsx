@@ -143,3 +143,34 @@ console.log('App.test.tsx: OK (org handlers + snapshot boundary + runtime displa
 
 assert.match(src, /'nodes'/, 'AppPage union must include the nodes page')
 assert.match(src, /activePage === 'nodes'/, 'App must render NodesPanel when activePage is nodes')
+
+// 9. Tenant VM status indicator: polled from inside App (not just the
+// pre-workspace gate) so a VM that goes away after entry (e.g. torn down
+// externally, or a liveness-check downgrade from the backend) is visible.
+assert.match(
+  src,
+  /import \{ getVmStatus, type VmStatus \} from '\.\/lib\/vm'/,
+  'App.tsx must import getVmStatus from lib/vm',
+)
+assert.match(
+  src,
+  /const \[vmStatus, setVmStatus\] = useState<VmStatus \| null>\(null\)/,
+  'App.tsx must track vmStatus state',
+)
+assert.match(
+  src,
+  /getVmStatus\(token\)\.then\(setVmStatus\)/,
+  'App.tsx must poll getVmStatus and store the result',
+)
+assert.match(
+  src,
+  /setInterval\(poll, VM_STATUS_POLL_MS\)/,
+  'App.tsx must poll VM status on an interval, not just once on mount',
+)
+assert.match(
+  src,
+  /status-indicator \$\{vmStatusClass\(vmStatus\?\.status\)\}/,
+  'App.tsx must render a status dot for the tenant VM using vmStatusClass',
+)
+
+console.log('App.test.tsx: OK (tenant VM status indicator)')

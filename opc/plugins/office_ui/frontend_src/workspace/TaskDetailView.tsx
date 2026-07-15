@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import type { KanbanTask, Session } from '../types/kanban'
-import type { ChatMessage } from '../types/chat'
+import type { ChatMessage, CheckpointReplyMetadata } from '../types/chat'
 import { AGENT_STATUS_LABEL, PRIORITY_META } from '../types/kanban'
 import type { AgentInfo } from '../types/visual'
 import { MarkdownBody, MessageList } from '../chat/MessageList'
@@ -14,6 +14,7 @@ interface TaskDetailViewProps {
   onBack: () => void
   onOpenLinkedSession?: (taskId: string) => void
   onOpenExecutionPanel?: (taskId: string) => void
+  onSend?: (content: string, taskId?: string, metadata?: CheckpointReplyMetadata) => void
 }
 
 function prettyJson(value: unknown): string {
@@ -47,6 +48,7 @@ export function TaskDetailView({
   onBack,
   onOpenLinkedSession,
   onOpenExecutionPanel,
+  onSend,
 }: TaskDetailViewProps) {
   const liveAssignees = useMemo(() => (
     task.assigneeIds
@@ -300,6 +302,7 @@ export function TaskDetailView({
                 messages={linkedSessionMessages}
                 channelName={linkedSession.title ?? 'Runtime Session'}
                 detailMode="summary"
+                onSend={onSend}
               />
             </div>
           ) : linkedSession ? (

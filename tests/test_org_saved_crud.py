@@ -178,6 +178,36 @@ def test_write_active_org_config_never_writes_reserved_corporate_saved_org(tmp_p
     assert (config_dir / "company_orgs" / f"org_{cfg.org.organization_id}_config.yaml").exists()
 
 
+def test_persist_runtime_config_in_org_mode_also_flushes_llm_config(tmp_path):
+    """Regression test: saving Settings (model/API key) while a custom org
+
+    architecture is active must reach llm_config.yaml, not just the org
+    architecture file — otherwise a later mode switch that reloads OPCConfig
+    from disk silently reverts the in-memory edit.
+    """
+    from opc.core.config import OPCConfig
+    from opc.plugins.office_ui import ws_handler as wh
+
+    cfg = OPCConfig()
+    cfg.org.company_profile = "custom"
+    cfg.org.organization_id = "lab"
+    cfg.org.organization_name = "Lab"
+    cfg.llm.default_model = "mimo-v2.5-pro"
+    cfg.llm.api_base = "https://token-plan-cn.xiaomimimo.com/anthropic"
+
+    handler = wh.WSHandler.__new__(wh.WSHandler)
+    handler.engine = SimpleNamespace(config=cfg, opc_home=tmp_path / ".opc")
+    handler._exec_mode = "org"
+
+    handler._persist_runtime_config()
+
+    llm_path = tmp_path / ".opc" / "config" / "llm_config.yaml"
+    assert llm_path.exists()
+    saved = yaml.safe_load(llm_path.read_text())
+    assert saved["llm"]["default_model"] == "mimo-v2.5-pro"
+    assert saved["llm"]["api_base"] == "https://token-plan-cn.xiaomimimo.com/anthropic"
+
+
 def test_org_service_rejects_corporate_write_operations(tmp_path):
     from opc.core.config import OPCConfig
     from opc.plugins.office_ui.services.context import ModeState, OfficeServiceContext

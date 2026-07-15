@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from pathlib import Path
 from typing import Any
 
@@ -28,9 +29,51 @@ class ClaudeCodeAdapter(ExternalAgentAdapter):
     # ``None`` means "not probed yet"; ``{}`` means "probed, no proxy found".
     _user_shell_proxy_env_cache: dict[str, str] | None = None
 
+    # OpenOPC (and, if launched from inside a Claude Code terminal session,
+    # the developer's own shell) may already carry these in os.environ — the
+    # user's *personal* Anthropic/Claude Code auth and model defaults, or
+    # this very process's own Claude Code session identity. Left alone they
+    # leak into the spawned child via `{**os.environ, **extra_env}` and can
+    # silently outrank the vars ExternalAgentBroker sets from the platform's
+    # configured LLM provider (ANTHROPIC_API_KEY in particular takes
+    # precedence over ANTHROPIC_AUTH_TOKEN in the CLI's own auth resolution
+    # order, so a leaked personal API key wins even after the broker sets
+    # AUTH_TOKEN for a third-party relay). Stripped here, unconditionally,
+    # before extra_env is applied — the broker's choices are then always
+    # authoritative regardless of the host shell's own Claude Code setup.
+    _PARENT_CLAUDE_RUNTIME_ENV_VARS = {
+        "ANTHROPIC_API_KEY",
+        "ANTHROPIC_AUTH_TOKEN",
+        "ANTHROPIC_BASE_URL",
+        "ANTHROPIC_MODEL",
+        "ANTHROPIC_SMALL_FAST_MODEL",
+        "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+        "ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME",
+        "ANTHROPIC_DEFAULT_SONNET_MODEL",
+        "ANTHROPIC_DEFAULT_SONNET_MODEL_NAME",
+        "ANTHROPIC_DEFAULT_OPUS_MODEL",
+        "ANTHROPIC_DEFAULT_OPUS_MODEL_NAME",
+        "ANTHROPIC_DEFAULT_FABLE_MODEL",
+        "ANTHROPIC_DEFAULT_FABLE_MODEL_NAME",
+        "CLAUDECODE",
+        "CLAUDE_CODE_SESSION_ID",
+        "CLAUDE_CODE_ENTRYPOINT",
+        "CLAUDE_CODE_CHILD_SESSION",
+    }
+
     def __init__(self, config=None) -> None:
         super().__init__(config=config)
         self._process: asyncio.subprocess.Process | None = None
+
+    def build_process_env(self, extra_env: dict[str, str] | None = None) -> dict[str, str] | None:
+        env = {
+            str(key): str(value)
+            for key, value in os.environ.items()
+            if str(key).upper() not in self._PARENT_CLAUDE_RUNTIME_ENV_VARS
+        }
+        if extra_env:
+            env.update({str(k): str(v) for k, v in extra_env.items()})
+        return env
 
     async def start_process(
         self,
@@ -243,6 +286,23 @@ class ClaudeCodeAdapter(ExternalAgentAdapter):
             pass
         return extra
 
+    def _build_setting_sources_args(self) -> list[str]:
+        # `~/.claude/settings.json` (the "user" setting source) carries the
+        # developer's own personal model choice and `env` block for their
+        # everyday interactive Claude Code use — e.g. their own relay/API
+        # key, unrelated to OpenOPC's configured LLM provider. Claude Code
+        # loads it regardless of the subprocess env OpenOPC passes in, so a
+        # personal `model`/`env` override there silently outranks the
+        # ANTHROPIC_AUTH_TOKEN/BASE_URL/MODEL this adapter injects (see
+        # ExternalAgentBroker._apply_llm_config_env), sending the task to
+        # the developer's own account/model instead of the platform's
+        # configured one. Excluding "user" keeps project-level settings
+        # (checked into the workspace repo) while making OpenOPC's own
+        # injected env authoritative.
+        if any(arg == "--setting-sources" for arg in self.config.extra_args):
+            return []
+        return ["--setting-sources", "project,local"]
+
     def _build_argv_prompt_metadata(self, prompt: str) -> dict[str, object]:
         return {
             "prompt_transport": "argv",
@@ -317,6 +377,7 @@ class ClaudeCodeAdapter(ExternalAgentAdapter):
             "--print",
             "--output-format", "text",
             *(["--input-format", "text"] if prompt_transport == "stdin" else []),
+            *self._build_setting_sources_args(),
             *self.build_workspace_args(workspace_path),
             *self._build_extra_dir_args(task),
             *self._build_session_args(),
@@ -352,6 +413,7 @@ class ClaudeCodeAdapter(ExternalAgentAdapter):
             *(["--input-format", "text"] if prompt_transport == "stdin" else []),
             *verbose_args,
             "--include-partial-messages",
+            *self._build_setting_sources_args(),
             *self.build_workspace_args(workspace_path),
             *self._build_extra_dir_args(task),
             *self._build_permission_args(),

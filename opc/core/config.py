@@ -1729,6 +1729,20 @@ class OPCConfig(BaseModel):
             pass
         return config
 
+    def save_llm_config(self, config_dir: Path | None = None) -> None:
+        """Persist just llm_config.yaml, independent of org/company mode.
+
+        save()'s org branch writes only the org architecture file, so callers
+        that persist org-scoped state while a custom org is active (see
+        WSHandler._persist_runtime_config) must call this separately or LLM
+        settings changes never reach disk.
+        """
+        if config_dir is None:
+            config_dir = get_opc_home() / "config"
+        config_dir.mkdir(parents=True, exist_ok=True)
+        llm_path = config_dir / "llm_config.yaml"
+        _atomic_write_yaml(llm_path, {"llm": self.llm.model_dump()})
+
     def save(self, config_dir: Path | None = None) -> None:
         if config_dir is None:
             config_dir = get_opc_home() / "config"

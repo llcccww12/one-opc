@@ -9529,6 +9529,11 @@ class WSHandler:
     def _persist_runtime_config(self) -> None:
         if str(getattr(self, "_exec_mode", "") or "").strip().lower() in {"org", "custom"}:
             self._write_active_org_config(self.engine.config)
+            # LLM/API-key settings are global, not org-scoped — _write_active_org_config
+            # only writes the org architecture file, so flush llm_config.yaml too or a
+            # later _restore_company_config_into_engine() reload silently discards edits.
+            config_dir = Path(getattr(self.engine, "opc_home", None) or Path.cwd() / ".opc") / "config"
+            self.engine.config.save_llm_config(config_dir)
             return
         self.engine.config.save()
 

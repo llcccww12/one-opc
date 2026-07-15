@@ -632,6 +632,7 @@ export function ContextPanel({
             onBack={onCloseTaskDetail ?? onCollapse}
             onOpenLinkedSession={onSelectSessionTab}
             onOpenExecutionPanel={onOpenExecutionPanel}
+            onSend={onMessageSend}
           />
         ) : isChildDetail && childDetailSession ? (
           /* Child detail view */
@@ -877,7 +878,7 @@ export function ContextPanel({
                       className={`ctx-tab${panelTab === 'files' ? ' active' : ''}`}
                       onClick={() => onPanelTabChange('files')}
                     >
-                      文件
+                      Files
                     </button>
                   )}
                 </div>

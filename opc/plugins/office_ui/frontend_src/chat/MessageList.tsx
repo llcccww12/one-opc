@@ -759,10 +759,14 @@ export function buildNarrativeMessageItems(
   const flushBundle = () => {
     if (bundle.length === 0) return
     const first = bundle[0].msg
-    const last = bundle[bundle.length - 1].msg
     items.push({
       kind: 'ops-bundle',
-      id: `ops:${first.id}:${bundle.length}:${last.id}`,
+      // Stable across growth: a live task keeps appending new status lines
+      // to this same bundle every few seconds. Baking bundle.length/last.id
+      // into the id (as before) changed it on every append, so the
+      // virtualizer's getItemKey saw a "new" row each time and remounted it
+      // — replaying the msg-enter animation and flickering the block.
+      id: `ops:${first.id}`,
       timestamp: first.timestamp,
       events: bundle,
       sortOrder: bundleSortOrder,
@@ -1159,6 +1163,10 @@ export const MessageList = React.memo(function MessageList({
   const [copiedId, setCopiedId] = useState<string | null>(null)
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null)
   const [visibleTimelineCount, setVisibleTimelineCount] = useState(INITIAL_VISIBLE_TIMELINE_ITEMS)
+  // Shows the floating "jump to latest" affordance whenever the view is
+  // scrolled away from the bottom — lets the user browse history during a
+  // stream without guessing whether new content will yank them back down.
+  const [showJumpToLatest, setShowJumpToLatest] = useState(false)
   const prevStatusRef = useRef(agentStatus)
   const stickRef = useRef(autoScroll)
   const initialScrollPendingRef = useRef(initialScrollToBottom)
@@ -1233,6 +1241,10 @@ export const MessageList = React.memo(function MessageList({
     const nextScrollTop = el.scrollTop
     lastScrollTopRef.current = nextScrollTop
     const atBottom = isNearScrollBottom(el)
+    // Surface the "jump to latest" affordance whenever we're away from the
+    // bottom, independent of the stick-to-bottom branches below — this is a
+    // pure visibility signal, not a decision about whether to auto-scroll.
+    setShowJumpToLatest(!atBottom)
     // Only update stick state from genuine user scroll, not from
     // programmatic scrolls or virtualizer re-measurement.
     if (programmaticScrollRef.current) {
@@ -1549,6 +1561,13 @@ export const MessageList = React.memo(function MessageList({
       lastScrollTopRef.current = el.scrollTop
     }
   }, [markProgrammaticScroll])
+
+  const jumpToLatest = useCallback(() => {
+    stickRef.current = autoScroll
+    scrollToEnd()
+    setShowJumpToLatest(false)
+    onMarkRead?.()
+  }, [autoScroll, scrollToEnd, onMarkRead])
 
   const scheduleScrollToEnd = useCallback((markRead = false, force = false) => {
     pendingScrollMarkReadRef.current ||= markRead
@@ -1941,34 +1960,41 @@ export const MessageList = React.memo(function MessageList({
   const virtualRows = virtualizer.getVirtualItems()
 
   return (
-    <div className="msg-list" ref={listRef} onScroll={handleScroll}>
-      {/* Spacer before visible items — pushes content down to correct scroll position */}
-      <div ref={contentSpacerRef} style={{ height: virtualizer.getTotalSize(), width: '100%', position: 'relative' }}>
-        <div
-          style={{
-            position: 'absolute',
-            top: 0,
-            left: 0,
-            width: '100%',
-            transform: `translateY(${virtualRows[0]?.start ?? 0}px)`,
-          }}
-        >
-          {virtualRows.map((virtualRow) => (
-            <div
-              key={virtualRow.key}
-              data-index={virtualRow.index}
-              ref={virtualizer.measureElement}
-            >
-              {renderVirtualRow(virtualItems[virtualRow.index])}
-            </div>
-          ))}
+    <div className="msg-list-shell">
+      <div className="msg-list" ref={listRef} onScroll={handleScroll}>
+        {/* Spacer before visible items — pushes content down to correct scroll position */}
+        <div ref={contentSpacerRef} style={{ height: virtualizer.getTotalSize(), width: '100%', position: 'relative' }}>
+          <div
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              width: '100%',
+              transform: `translateY(${virtualRows[0]?.start ?? 0}px)`,
+            }}
+          >
+            {virtualRows.map((virtualRow) => (
+              <div
+                key={virtualRow.key}
+                data-index={virtualRow.index}
+                ref={virtualizer.measureElement}
+              >
+                {renderVirtualRow(virtualItems[virtualRow.index])}
+              </div>
+            ))}
+          </div>
         </div>
-      </div>
 
-      {lightboxUrl && (
-        <div className="lightbox-overlay" onClick={() => setLightboxUrl(null)}>
-          <img className="lightbox-img" src={lightboxUrl} alt="Preview" />
-        </div>
+        {lightboxUrl && (
+          <div className="lightbox-overlay" onClick={() => setLightboxUrl(null)}>
+            <img className="lightbox-img" src={lightboxUrl} alt="Preview" />
+          </div>
+        )}
+      </div>
+      {showJumpToLatest && (
+        <button type="button" className="msg-jump-to-latest" onClick={jumpToLatest}>
+          <span>↓ New messages</span>
+        </button>
       )}
     </div>
   )

@@ -34,7 +34,7 @@ roles:
   - web_fetch
   - file_write
   - file_edit
-  preferred_external_agent: codex
+  preferred_external_agent: claude_code
   prompt_refs:
   - You are the Studio Director. You are the owner-facing final decision role for
     a lean game studio. Clarify the requested game, target platform, core promise,
@@ -49,7 +49,7 @@ roles:
   memory_policy_ref: null
   artifact_contract_ref: null
   runtime_policy:
-    execution_strategy: native
+    execution_strategy: external
     allowed_downstream_roles:
     - game_designer
     - gameplay_engineer

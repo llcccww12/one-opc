@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import json
@@ -74,6 +75,33 @@ _TOOL_PROTOCOL_ERROR_HINTS = (
     "missing tool output",
     "tool_call_id",
 )
+
+# Some providers (e.g. Bedrock-hosted Claude models with extended thinking
+# always on) reject any temperature != 1 outright. litellm has no structured
+# exception for this — the vendor's validation message only survives in
+# str(exception) — so detection is keyword-based, mirroring the other
+# is_*_error() methods below.
+_TEMPERATURE_UNSUPPORTED_HINTS = (
+    "temperature` is deprecated",
+    "temperature is deprecated",
+    "temperature is not supported",
+    "temperature is unsupported",
+)
+
+# Transient transport failures — a relay/reverse-proxy dropping the connection
+# mid-request (e.g. an idle/read timeout while the model is slow to produce
+# its first token) rather than a real rejection of the request itself. Worth
+# a bounded retry; auth/billing/bad-request errors are not in this list and
+# should surface immediately.
+_TRANSIENT_STREAM_ERROR_TYPES = (
+    litellm.InternalServerError,
+    litellm.APIConnectionError,
+    litellm.ServiceUnavailableError,
+    litellm.Timeout,
+    litellm.BadGatewayError,
+)
+_STREAM_DISCONNECT_MAX_ATTEMPTS = 3
+_STREAM_DISCONNECT_RETRY_DELAY_SECONDS = 1.5
 
 
 def _normalized_model_name(model: str) -> str:
@@ -233,6 +261,7 @@ class LLMProvider:
         self._total_tokens_in = 0
         self._total_tokens_out = 0
         self._total_cost = 0.0
+        self._temperature_unsupported_models: set[str] = set()
 
         self._api_key = config.api_key or (
             os.environ.get(config.api_key_env) if config.api_key_env else None
@@ -420,6 +449,14 @@ class LLMProvider:
         message = str(error).lower()
         return any(hint in message for hint in _TOOL_PROTOCOL_ERROR_HINTS)
 
+    def is_temperature_unsupported_error(self, error: Exception) -> bool:
+        message = str(error).lower()
+        return any(hint in message for hint in _TEMPERATURE_UNSUPPORTED_HINTS)
+
+    @staticmethod
+    def is_transient_stream_disconnect(error: Exception) -> bool:
+        return isinstance(error, _TRANSIENT_STREAM_ERROR_TYPES)
+
     @staticmethod
     def sanitize_tool_call_history(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Drop incomplete or stray assistant/tool tool-call transcripts."""
@@ -501,6 +538,30 @@ class LLMProvider:
         content_parts.extend(parts)
         return content_parts
 
+    async def _acompletion_with_temperature_fallback(self, call_kwargs: dict[str, Any]) -> Any:
+        """Call litellm.acompletion, retrying once at temperature=1 if the model rejects it.
+
+        Some providers (e.g. Bedrock Claude with extended thinking always on) hard-reject
+        any other temperature. Once discovered for a model, later calls skip straight to
+        temperature=1 instead of paying for a failing round trip every time.
+        """
+        model = call_kwargs.get("model", "")
+        if model in self._temperature_unsupported_models and call_kwargs.get("temperature") != 1:
+            call_kwargs["temperature"] = 1
+        try:
+            return await litellm.acompletion(**call_kwargs)
+        except Exception as e:
+            if self.is_temperature_unsupported_error(e) and call_kwargs.get("temperature") != 1:
+                logger.warning(
+                    "Model {} rejected temperature={}; retrying with temperature=1",
+                    model,
+                    call_kwargs.get("temperature"),
+                )
+                self._temperature_unsupported_models.add(model)
+                call_kwargs["temperature"] = 1
+                return await litellm.acompletion(**call_kwargs)
+            raise
+
     async def chat(
         self,
         messages: list[dict[str, Any]],
@@ -532,7 +593,7 @@ class LLMProvider:
         logger.debug(f"LLM call: model={model}, base={self._api_base or 'default'}, msgs={len(messages)}, tools={len(tools or [])}")
 
         try:
-            response = await litellm.acompletion(**call_kwargs)
+            response = await self._acompletion_with_temperature_fallback(call_kwargs)
         except Exception as e:
             logger.error(f"LLM call failed: {e}")
             raise
@@ -682,108 +743,132 @@ class LLMProvider:
         last_usage = {"prompt_tokens": 0, "completion_tokens": 0}
         yield RuntimeLLMEvent(event_type="message_start", model=model, payload={"model": model})
 
-        try:
-            stream = await litellm.acompletion(**call_kwargs)
-            if hasattr(stream, "__aiter__"):
-                async for chunk in stream:
-                    for event in self.normalize_stream_event(chunk, model=model):
-                        if event.event_type == "usage":
-                            total_prompt = int(event.payload.get("prompt_tokens", 0) or 0)
-                            total_completion = int(event.payload.get("completion_tokens", 0) or 0)
-                            delta_prompt = max(0, total_prompt - last_usage["prompt_tokens"])
-                            delta_completion = max(0, total_completion - last_usage["completion_tokens"])
-                            last_usage["prompt_tokens"] = total_prompt
-                            last_usage["completion_tokens"] = total_completion
-                            cost = 0.0
-                            try:
-                                prompt_cost, completion_cost = litellm.cost_per_token(
-                                    model=model,
-                                    prompt_tokens=delta_prompt,
-                                    completion_tokens=delta_completion,
-                                )
-                                cost = float(prompt_cost or 0.0) + float(completion_cost or 0.0)
-                            except Exception:
+        for attempt in range(1, _STREAM_DISCONNECT_MAX_ATTEMPTS + 1):
+            content_emitted = False
+            try:
+                stream = await self._acompletion_with_temperature_fallback(call_kwargs)
+                if hasattr(stream, "__aiter__"):
+                    async for chunk in stream:
+                        for event in self.normalize_stream_event(chunk, model=model):
+                            if event.event_type in ("assistant_delta", "tool_call_delta"):
+                                content_emitted = True
+                            if event.event_type == "usage":
+                                total_prompt = int(event.payload.get("prompt_tokens", 0) or 0)
+                                total_completion = int(event.payload.get("completion_tokens", 0) or 0)
+                                delta_prompt = max(0, total_prompt - last_usage["prompt_tokens"])
+                                delta_completion = max(0, total_completion - last_usage["completion_tokens"])
+                                last_usage["prompt_tokens"] = total_prompt
+                                last_usage["completion_tokens"] = total_completion
                                 cost = 0.0
-                            self._total_tokens_in += delta_prompt
-                            self._total_tokens_out += delta_completion
-                            self._total_cost += cost
-                            event.payload = {
-                                **dict(event.payload),
-                                "prompt_tokens": delta_prompt,
-                                "completion_tokens": delta_completion,
-                                "prompt_tokens_total": total_prompt,
-                                "completion_tokens_total": total_completion,
+                                try:
+                                    prompt_cost, completion_cost = litellm.cost_per_token(
+                                        model=model,
+                                        prompt_tokens=delta_prompt,
+                                        completion_tokens=delta_completion,
+                                    )
+                                    cost = float(prompt_cost or 0.0) + float(completion_cost or 0.0)
+                                except Exception:
+                                    cost = 0.0
+                                self._total_tokens_in += delta_prompt
+                                self._total_tokens_out += delta_completion
+                                self._total_cost += cost
+                                event.payload = {
+                                    **dict(event.payload),
+                                    "prompt_tokens": delta_prompt,
+                                    "completion_tokens": delta_completion,
+                                    "prompt_tokens_total": total_prompt,
+                                    "completion_tokens_total": total_completion,
+                                    "estimated_cost_delta": cost,
+                                    "estimated_cost_total": self._total_cost,
+                                    "context_window": event.payload.get("context_window") or self.get_context_window(model=model),
+                                    "model": model,
+                                }
+                            yield event
+                else:
+                    # Provider fallback: treat the response as a single non-streaming completion.
+                    choice = stream.choices[0]
+                    message = choice.message
+                    if getattr(message, "content", None):
+                        yield RuntimeLLMEvent(
+                            event_type="assistant_delta",
+                            model=model,
+                            payload={"text": message.content},
+                        )
+                    for tc in getattr(message, "tool_calls", None) or []:
+                        yield RuntimeLLMEvent(
+                            event_type="tool_call_delta",
+                            model=model,
+                            payload={
+                                "index": 0,
+                                "id": getattr(tc, "id", ""),
+                                "name": getattr(getattr(tc, "function", None), "name", ""),
+                                "arguments": getattr(getattr(tc, "function", None), "arguments", ""),
+                            },
+                        )
+                    usage = getattr(stream, "usage", None)
+                    if usage:
+                        cost = 0.0
+                        prompt_tokens = int(getattr(usage, "prompt_tokens", 0) or 0)
+                        completion_tokens = int(getattr(usage, "completion_tokens", 0) or 0)
+                        try:
+                            prompt_cost, completion_cost = litellm.cost_per_token(
+                                model=model,
+                                prompt_tokens=prompt_tokens,
+                                completion_tokens=completion_tokens,
+                            )
+                            cost = float(prompt_cost or 0.0) + float(completion_cost or 0.0)
+                        except Exception:
+                            cost = 0.0
+                        self._total_tokens_in += prompt_tokens
+                        self._total_tokens_out += completion_tokens
+                        self._total_cost += cost
+                        yield RuntimeLLMEvent(
+                            event_type="usage",
+                            model=model,
+                            payload={
+                                "prompt_tokens": prompt_tokens,
+                                "completion_tokens": completion_tokens,
+                                "prompt_tokens_total": prompt_tokens,
+                                "completion_tokens_total": completion_tokens,
                                 "estimated_cost_delta": cost,
                                 "estimated_cost_total": self._total_cost,
-                                "context_window": event.payload.get("context_window") or self.get_context_window(model=model),
+                                "context_window": self.get_context_window(model=model),
                                 "model": model,
-                            }
-                        yield event
-            else:
-                # Provider fallback: treat the response as a single non-streaming completion.
-                choice = stream.choices[0]
-                message = choice.message
-                if getattr(message, "content", None):
-                    yield RuntimeLLMEvent(
-                        event_type="assistant_delta",
-                        model=model,
-                        payload={"text": message.content},
-                    )
-                for tc in getattr(message, "tool_calls", None) or []:
-                    yield RuntimeLLMEvent(
-                        event_type="tool_call_delta",
-                        model=model,
-                        payload={
-                            "index": 0,
-                            "id": getattr(tc, "id", ""),
-                            "name": getattr(getattr(tc, "function", None), "name", ""),
-                            "arguments": getattr(getattr(tc, "function", None), "arguments", ""),
-                        },
-                    )
-                usage = getattr(stream, "usage", None)
-                if usage:
-                    cost = 0.0
-                    prompt_tokens = int(getattr(usage, "prompt_tokens", 0) or 0)
-                    completion_tokens = int(getattr(usage, "completion_tokens", 0) or 0)
-                    try:
-                        prompt_cost, completion_cost = litellm.cost_per_token(
-                            model=model,
-                            prompt_tokens=prompt_tokens,
-                            completion_tokens=completion_tokens,
+                            },
                         )
-                        cost = float(prompt_cost or 0.0) + float(completion_cost or 0.0)
-                    except Exception:
-                        cost = 0.0
-                    self._total_tokens_in += prompt_tokens
-                    self._total_tokens_out += completion_tokens
-                    self._total_cost += cost
                     yield RuntimeLLMEvent(
-                        event_type="usage",
+                        event_type="message_stop",
                         model=model,
-                        payload={
-                            "prompt_tokens": prompt_tokens,
-                            "completion_tokens": completion_tokens,
-                            "prompt_tokens_total": prompt_tokens,
-                            "completion_tokens_total": completion_tokens,
-                            "estimated_cost_delta": cost,
-                            "estimated_cost_total": self._total_cost,
-                            "context_window": self.get_context_window(model=model),
-                            "model": model,
-                        },
+                        payload={"finish_reason": getattr(choice, "finish_reason", "stop")},
                     )
+                return
+            except Exception as e:
+                # A relay/reverse-proxy dropping the connection before any content
+                # arrived (e.g. an idle-timeout while the model is slow to start)
+                # is safe to retry from scratch. Once content has been yielded to
+                # the caller, a retry would re-issue the whole request and produce
+                # duplicate/inconsistent output, so only the untouched-so-far case
+                # is retried.
+                if (
+                    not content_emitted
+                    and attempt < _STREAM_DISCONNECT_MAX_ATTEMPTS
+                    and self.is_transient_stream_disconnect(e)
+                ):
+                    logger.warning(
+                        "LLM stream disconnected before any output (attempt {}/{}); retrying: {}",
+                        attempt,
+                        _STREAM_DISCONNECT_MAX_ATTEMPTS,
+                        e,
+                    )
+                    await asyncio.sleep(_STREAM_DISCONNECT_RETRY_DELAY_SECONDS)
+                    continue
+                logger.error(f"LLM stream failed: {e}")
                 yield RuntimeLLMEvent(
-                    event_type="message_stop",
+                    event_type="error",
                     model=model,
-                    payload={"finish_reason": getattr(choice, "finish_reason", "stop")},
+                    payload={"message": str(e)},
                 )
-        except Exception as e:
-            logger.error(f"LLM stream failed: {e}")
-            yield RuntimeLLMEvent(
-                event_type="error",
-                model=model,
-                payload={"message": str(e)},
-            )
-            raise
+                raise
 
     async def simple_chat(
         self,

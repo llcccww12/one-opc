@@ -784,27 +784,10 @@ html, body, #root {
   /* 渐变已在 .logo-text 中应用 */
 }
 
-.conn-dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: var(--text-dim);
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
-}
-
-.conn-dot.ok {
-  background: var(--green);
-  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.2);
-  animation: pulse-green 2s infinite;
-}
-
 @keyframes pulse-green {
   0%, 100% { box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.2); }
   50% { box-shadow: 0 0 0 6px rgba(16, 185, 129, 0.1); }
 }
-
-.conn-dot.warn { background: var(--yellow); }
-.conn-dot.error { background: var(--red); }
 
 /* Status indicator: icon + colored dot, used in rail-top */
 .status-indicator {

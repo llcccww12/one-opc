@@ -797,6 +797,13 @@
 /* ══════════════════════════════════════════════════════════════════════════
    Message List
    ══════════════════════════════════════════════════════════════════════════ */
+.msg-list-shell {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  position: relative;
+}
+
 .msg-list {
   flex: 1;
   min-height: 0;
@@ -809,6 +816,28 @@
   overflow-anchor: none;
   position: relative;
 }
+
+.msg-jump-to-latest {
+  position: absolute;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  background: var(--accent);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  box-shadow: var(--shadow-md);
+  cursor: pointer;
+  z-index: 5;
+}
+
+.msg-jump-to-latest:hover { filter: brightness(1.08); }
 
 .msg-end-anchor {
   height: 1px;

@@ -25,12 +25,43 @@ def _make_broker(llm_config: LLMConfig) -> ExternalAgentBroker:
 
 
 class ExternalBrokerLLMEnvTests(unittest.TestCase):
-    def test_llm_env_vars_added_when_key_configured(self) -> None:
+    def test_custom_base_url_uses_auth_token_not_api_key(self) -> None:
+        # Third-party Claude-compatible relays (custom api_base) authenticate
+        # via `Authorization: Bearer` (ANTHROPIC_AUTH_TOKEN), not the
+        # `x-api-key` scheme ANTHROPIC_API_KEY uses. Sending ANTHROPIC_API_KEY
+        # here makes the relay reject the key as invalid even though the
+        # value itself is correct.
         broker = _make_broker(LLMConfig(api_key="sk-configured", api_base="https://proxy.example.com"))
         env: dict[str, str] = {}
         broker._apply_llm_config_env(env)
-        self.assertEqual(env["ANTHROPIC_API_KEY"], "sk-configured")
+        self.assertEqual(env["ANTHROPIC_AUTH_TOKEN"], "sk-configured")
         self.assertEqual(env["ANTHROPIC_BASE_URL"], "https://proxy.example.com")
+        self.assertNotIn("ANTHROPIC_API_KEY", env)
+
+    def test_custom_base_url_sets_model_stripping_litellm_prefix(self) -> None:
+        # A custom relay speaks its own model name, not a "claude-*" alias —
+        # ANTHROPIC_MODEL must be derived from default_model with the
+        # litellm-style "anthropic/" provider prefix stripped.
+        broker = _make_broker(
+            LLMConfig(
+                api_key="sk-configured",
+                api_base="https://proxy.example.com",
+                default_model="anthropic/mimo-v2.5-pro",
+            )
+        )
+        env: dict[str, str] = {}
+        broker._apply_llm_config_env(env)
+        self.assertEqual(env["ANTHROPIC_MODEL"], "mimo-v2.5-pro")
+
+    def test_api_key_used_when_no_custom_base_url(self) -> None:
+        # No custom api_base configured means the official Anthropic API,
+        # which expects the key via the x-api-key scheme (ANTHROPIC_API_KEY).
+        broker = _make_broker(LLMConfig(api_key="sk-configured", api_base=""))
+        env: dict[str, str] = {}
+        broker._apply_llm_config_env(env)
+        self.assertEqual(env["ANTHROPIC_API_KEY"], "sk-configured")
+        self.assertNotIn("ANTHROPIC_BASE_URL", env)
+        self.assertNotIn("ANTHROPIC_AUTH_TOKEN", env)
 
     def test_no_env_vars_added_when_key_not_configured(self) -> None:
         broker = _make_broker(LLMConfig(api_key="", api_base=""))
