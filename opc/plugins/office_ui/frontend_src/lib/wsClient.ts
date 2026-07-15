@@ -182,6 +182,7 @@ const PROJECT_SCOPED_MESSAGE_TYPES = new Set([
   'comms_read_message',
   'list_workspace_files',
   'delete_workspace_file',
+  'review_decision',
 ])
 
 export class VisualSocketClient {
@@ -682,6 +683,11 @@ export class VisualSocketClient {
   commsReadMessage(projectId: string, path: string): void {
     const pid = this.requireProjectId(projectId, 'comms_read_message')
     this.send({ type: 'comms_read_message', project_id: pid, path })
+  }
+
+  sendReviewDecision(projectId: string, workItemId: string, decision: 'approve' | 'reject' | 'rework', feedback?: string): void {
+    const pid = this.requireProjectId(projectId, 'review_decision')
+    this.send({ type: 'review_decision', project_id: pid, work_item_id: workItemId, decision, feedback: feedback || undefined })
   }
 
   // ── Internal ───────────────────────────────────────────────────────────
