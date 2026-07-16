@@ -23,15 +23,16 @@ def anthropic_env_for(api_key: str, api_base: str, default_model: str = "") -> d
     api_base = (api_base or "").strip()
     default_model = (default_model or "").strip()
 
+    if api_key:
+        # Claude Code CLI reads ANTHROPIC_API_KEY for auth — always set it
+        # regardless of api_base so the CLI can authenticate.
+        env["ANTHROPIC_API_KEY"] = api_key
+
     if api_base:
         env["ANTHROPIC_BASE_URL"] = api_base
-        if api_key:
-            env["ANTHROPIC_AUTH_TOKEN"] = api_key
         if default_model:
             model_name = default_model.split("/", 1)[1] if "/" in default_model else default_model
             if model_name:
                 env["ANTHROPIC_MODEL"] = model_name
-    elif api_key:
-        env["ANTHROPIC_API_KEY"] = api_key
 
     return env
