@@ -38,3 +38,25 @@ def make_vm_status_handler(user_store: UserStore, vm_service: TenantVmService):
         return aiohttp.web.json_response({"ok": True, **status})
 
     return _handle
+
+
+def make_vm_stop_handler(user_store: UserStore, vm_service: TenantVmService):
+    async def _handle(request: aiohttp.web.Request) -> aiohttp.web.Response:
+        user_id = await _authenticate_bearer(request, user_store)
+        if user_id is None:
+            return aiohttp.web.json_response({"ok": False, "error": "unauthorized"}, status=401)
+        status = await vm_service.stop_vm(user_id)
+        return aiohttp.web.json_response({"ok": True, **status})
+
+    return _handle
+
+
+def make_vm_start_handler(user_store: UserStore, vm_service: TenantVmService):
+    async def _handle(request: aiohttp.web.Request) -> aiohttp.web.Response:
+        user_id = await _authenticate_bearer(request, user_store)
+        if user_id is None:
+            return aiohttp.web.json_response({"ok": False, "error": "unauthorized"}, status=401)
+        status = await vm_service.start_vm(user_id)
+        return aiohttp.web.json_response({"ok": True, **status})
+
+    return _handle

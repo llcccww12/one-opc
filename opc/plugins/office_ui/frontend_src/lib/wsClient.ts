@@ -68,6 +68,7 @@ interface SocketHandlers {
   onDeleteWorkspaceFile?: (payload: { ok: boolean; error?: string }) => void
   onCommsState?: (payload: CommsStatePayload) => void
   onCommsMessage?: (payload: CommsMessagePayload) => void
+  onVmStatusChanged?: (payload: { user_id: string; status: string; cluster_name: string | null; error_message: string | null }) => void
 }
 
 export interface CommsMessageItem {
@@ -897,6 +898,9 @@ export class VisualSocketClient {
         break
       case 'pong':
         this.handlePong()
+        break
+      case 'vm_status_changed':
+        this.handlers.onVmStatusChanged?.(parsed.payload as { user_id: string; status: string; cluster_name: string | null; error_message: string | null })
         break
       default:
         break

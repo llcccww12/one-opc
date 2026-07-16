@@ -3,7 +3,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { VisualSocketClient } from './lib/wsClient'
 import { getStoredToken, clearSession } from './lib/auth'
-import { getVmStatus, type VmStatus } from './lib/vm'
+import { getVmStatus, stopVm, startVm, type VmStatus } from './lib/vm'
 import { IdentityMenu } from './auth/IdentityMenu'
 import { NodesPanel } from './nodes/NodesPanel'
 import type { NodeCluster } from './nodes/NodesPanel'
@@ -483,6 +483,7 @@ export default function App() {
   const [status, setStatus] = useState<SocketStatus>('disconnected')
   const [statusDetail, setStatusDetail] = useState('')
   const [vmStatus, setVmStatus] = useState<VmStatus | null>(null)
+  const [vmActionLoading, setVmActionLoading] = useState(false)
   const [snapshot, setSnapshot] = useState<VisualSnapshot | null>(null)
   const [events, setEvents] = useState<VisualEvent[]>([])
   const [uiTick, setUiTick] = useState(0)
@@ -564,6 +565,28 @@ export default function App() {
     poll()
     const interval = setInterval(poll, VM_STATUS_POLL_MS)
     return () => clearInterval(interval)
+  }, [])
+  const handleVmStop = useCallback(async () => {
+    const token = getStoredToken()
+    if (!token) return
+    setVmActionLoading(true)
+    try {
+      const result = await stopVm(token)
+      setVmStatus(result)
+    } finally {
+      setVmActionLoading(false)
+    }
+  }, [])
+  const handleVmStart = useCallback(async () => {
+    const token = getStoredToken()
+    if (!token) return
+    setVmActionLoading(true)
+    try {
+      const result = await startVm(token)
+      setVmStatus(result)
+    } finally {
+      setVmActionLoading(false)
+    }
   }, [])
   const timersRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set())
   const replayedEventIds = useRef<Set<string>>(new Set())
@@ -1768,6 +1791,13 @@ export default function App() {
         if (!payloadMatchesActiveProject(payload as unknown as Record<string, unknown>, true)) return
         setCommsMessage(payload)
       },
+      onVmStatusChanged: (payload) => {
+        setVmStatus({
+          status: payload.status as VmStatus['status'],
+          cluster_name: payload.cluster_name ?? null,
+          error_message: payload.error_message ?? null,
+        })
+      },
       onRecoveryResult: (payload) => {
         if (!payloadMatchesActiveProject(payload as unknown as Record<string, unknown>, false)) return
         if (payload?.status === 'completed' || payload?.status === 'cancelled') {
@@ -2346,6 +2376,26 @@ export default function App() {
           <div className={`status-indicator ${vmStatusClass(vmStatus?.status)}`} title={vmStatusLabel(vmStatus)}>
             <IconCloud />
             <span className="status-dot" />
+            {vmStatus?.status === 'ready' && (
+              <button
+                className="vm-action-btn"
+                title="停止云主机"
+                disabled={vmActionLoading}
+                onClick={(e) => { e.stopPropagation(); handleVmStop() }}
+              >
+                {vmActionLoading ? '...' : '⏸'}
+              </button>
+            )}
+            {vmStatus?.status === 'stopped' && (
+              <button
+                className="vm-action-btn"
+                title="启动云主机"
+                disabled={vmActionLoading}
+                onClick={(e) => { e.stopPropagation(); handleVmStart() }}
+              >
+                {vmActionLoading ? '...' : '▶'}
+              </button>
+            )}
           </div>
           <div className={`status-indicator ${llmConfig?.api_key_set ? 'ok' : 'warn'}`} title={llmConfig?.api_key_set ? `LLM API Key: 已配置\nBase: ${llmConfig.api_base || '(default)'}` : 'LLM API Key: 未配置'}>
             <IconKey />

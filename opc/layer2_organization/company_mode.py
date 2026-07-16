@@ -5024,6 +5024,9 @@ class CompanyWorkItemExecutor:
         if message is None:
             return None
 
+        # Record activity so idle auto-stop does not kill a busy VM
+        vm_service.record_activity(user_id)
+
         async def _on_progress(text: str) -> None:
             if self.progress_callback:
                 try:

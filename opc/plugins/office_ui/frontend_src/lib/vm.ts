@@ -31,3 +31,11 @@ export function getVmStatus(token: string): Promise<VmStatus> {
 export function bindVm(token: string): Promise<VmStatus> {
   return callVmApi('/api/vm/bind', 'POST', token)
 }
+
+export function stopVm(token: string): Promise<VmStatus> {
+  return callVmApi('/api/vm/stop', 'POST', token)
+}
+
+export function startVm(token: string): Promise<VmStatus> {
+  return callVmApi('/api/vm/start', 'POST', token)
+}

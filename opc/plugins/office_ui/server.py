@@ -28,7 +28,7 @@ from opc.plugins.office_ui.user_store import UserStore
 from opc.plugins.office_ui.credential_vault import CredentialVault
 from opc.plugins.office_ui.tenant_vm_store import TenantVmStore
 from opc.plugins.office_ui.tenant_vm_service import TenantVmService
-from opc.plugins.office_ui.bind_routes import make_bind_vm_handler, make_vm_status_handler
+from opc.plugins.office_ui.bind_routes import make_bind_vm_handler, make_vm_status_handler, make_vm_stop_handler, make_vm_start_handler
 from opc.plugins.office_ui.worker_ws import make_worker_ws_handler
 from opc.plugins.office_ui.file_download_routes import make_file_download_handler
 from opc.plugins.office_ui.event_adapter import EventAdapter
@@ -237,6 +237,10 @@ async def create_app(
     app["user_store"] = user_store
     app["tenant_vm_service"] = tenant_vm_service
 
+    # Wire VM status-change broadcast so stop/start/idle events reach WS clients
+    tenant_vm_service.set_broadcast(ws_handler.broadcast)
+    tenant_vm_service.start_idle_monitor()
+
     # ── Routes ────────────────────────────────────────────────────────
     app.router.add_get("/ws", ws_handler.handle_ws)
 
@@ -253,6 +257,8 @@ async def create_app(
     # Per-user SkyPilot VM binding (must be registered before the SPA catch-all)
     app.router.add_post("/api/vm/bind", make_bind_vm_handler(user_store, tenant_vm_service))
     app.router.add_get("/api/vm/status", make_vm_status_handler(user_store, tenant_vm_service))
+    app.router.add_post("/api/vm/stop", make_vm_stop_handler(user_store, tenant_vm_service))
+    app.router.add_post("/api/vm/start", make_vm_start_handler(user_store, tenant_vm_service))
     app.router.add_get("/worker/ws", make_worker_ws_handler(tenant_vm_store, engine.worker_registry))
     app.router.add_get(
         "/api/vm/files/download", make_file_download_handler(user_store, engine.worker_registry)

@@ -4836,6 +4836,10 @@ class WSHandler:
     ) -> Any | None:
         """Dispatch task to a connected worker VM. Returns WorkerTaskOutcome or None on timeout."""
         registry = self.engine.worker_registry
+        # Record activity so idle auto-stop does not kill a busy VM
+        vm_svc = getattr(self.engine, "tenant_vm_service", None)
+        if vm_svc:
+            vm_svc.record_activity(user_id)
         return await registry.dispatch_run_task(
             user_id, task_id or "", message, on_progress, timeout,
         )
