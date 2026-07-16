@@ -967,6 +967,17 @@ def init(
         config = _load_config_template(template_dir)
         config.llm.api_key = ""
         config.save(opc_home / "config")
+
+        # Copy company org templates
+        import shutil
+        source_orgs = template_dir / "company_orgs"
+        target_orgs = opc_home / "config" / "company_orgs"
+        if source_orgs.is_dir():
+            target_orgs.mkdir(parents=True, exist_ok=True)
+            for org_file in source_orgs.glob("*.yaml"):
+                dest = target_orgs / org_file.name
+                if not dest.exists():
+                    shutil.copy2(org_file, dest)
     else:
         config = OPCConfig()
         if not config.org.roles:
