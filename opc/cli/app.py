@@ -1164,6 +1164,127 @@ def init(
 
 
 @app.command()
+def setup(
+    skip_claude: bool = typer.Option(False, "--skip-claude", help="Skip Claude CLI installation check."),
+    skip_key: bool = typer.Option(False, "--skip-key", help="Skip API key configuration."),
+):
+    """Set up OPC environment — check/install Claude Code CLI and configure API key."""
+    import shutil
+    import subprocess
+
+    from opc.core.config import get_opc_home
+
+    opc_home = get_opc_home()
+
+    console.print(Panel("[bold]OPC Environment Setup[/bold]", border_style="blue"))
+
+    # Step 1: Check Claude CLI
+    if not skip_claude:
+        claude_bin = shutil.which("claude")
+        if claude_bin:
+            try:
+                result = subprocess.run(
+                    [claude_bin, "--version"],
+                    capture_output=True, text=True, timeout=10,
+                )
+                version = result.stdout.strip().split("\n")[0] if result.returncode == 0 else "unknown"
+                console.print(f"  [green]✓[/green] Claude Code CLI found: {version}")
+            except Exception:
+                console.print(f"  [green]✓[/green] Claude Code CLI found at: {claude_bin}")
+        else:
+            console.print("  [yellow]✗[/yellow] Claude Code CLI not found")
+            npm_bin = shutil.which("npm")
+            if npm_bin:
+                if typer.confirm("    Install Claude Code CLI via npm?", default=True):
+                    console.print("    Installing @anthropic-ai/claude-code ...")
+                    try:
+                        result = subprocess.run(
+                            [npm_bin, "install", "-g", "@anthropic-ai/claude-code"],
+                            capture_output=True, text=True, timeout=120,
+                        )
+                        if result.returncode == 0:
+                            console.print("    [green]✓[/green] Claude Code CLI installed successfully")
+                        else:
+                            console.print(f"    [red]✗[/red] Installation failed: {result.stderr[:200]}")
+                            console.print("    Please install manually: npm install -g @anthropic-ai/claude-code")
+                    except subprocess.TimeoutExpired:
+                        console.print("    [yellow]⏱[/yellow] Installation timed out. Please install manually:")
+                        console.print("      npm install -g @anthropic-ai/claude-code")
+                else:
+                    console.print("    Skipped. Install later with: npm install -g @anthropic-ai/claude-code")
+            else:
+                console.print("    [yellow]npm not found[/yellow]. Please install Node.js first:")
+                console.print("      https://nodejs.org/")
+                console.print("    Then run: npm install -g @anthropic-ai/claude-code")
+    else:
+        console.print("  [dim]Claude CLI check skipped[/dim]")
+
+    # Step 2: Check/Configure API Key
+    if not skip_key:
+        config_dir = opc_home / "config"
+        llm_config_path = config_dir / "llm_config.yaml"
+
+        existing_key = ""
+        if llm_config_path.exists():
+            try:
+                import yaml as _yaml
+                with open(llm_config_path) as f:
+                    llm_data = _yaml.safe_load(f) or {}
+                existing_key = str(llm_data.get("api_key") or "").strip()
+            except Exception:
+                pass
+
+        if existing_key:
+            masked = existing_key[:8] + "..." + existing_key[-4:] if len(existing_key) > 12 else "***"
+            console.print(f"  [green]✓[/green] API Key configured: {masked}")
+        else:
+            console.print("  [yellow]✗[/yellow] No API Key configured")
+            if typer.confirm("    Configure API Key now?", default=True):
+                key = typer.prompt("    Enter your API Key", hide_input=True)
+                if key.strip():
+                    base_url = typer.prompt("    Enter API Base URL (leave empty for default)", default="")
+                    model = typer.prompt("    Enter default model", default="claude-sonnet-4-20250514")
+
+                    # Save to llm_config.yaml
+                    config_dir.mkdir(parents=True, exist_ok=True)
+                    llm_data = {}
+                    if llm_config_path.exists():
+                        try:
+                            import yaml as _yaml
+                            with open(llm_config_path) as f:
+                                llm_data = _yaml.safe_load(f) or {}
+                        except Exception:
+                            pass
+
+                    llm_data["api_key"] = key.strip()
+                    if base_url.strip():
+                        llm_data["api_base"] = base_url.strip()
+                    if model.strip():
+                        llm_data["default_model"] = model.strip()
+
+                    import yaml as _yaml
+                    with open(llm_config_path, "w") as f:
+                        _yaml.dump(llm_data, f, default_flow_style=False)
+
+                    console.print(f"    [green]✓[/green] Saved to {llm_config_path}")
+                else:
+                    console.print("    [yellow]Empty key, skipped[/yellow]")
+            else:
+                console.print(f"    Edit [bold]{llm_config_path}[/bold] to configure later")
+    else:
+        console.print("  [dim]API Key configuration skipped[/dim]")
+
+    # Step 3: Init if needed
+    if not _opc_config_initialized(opc_home):
+        console.print("\n  [yellow]OPC not initialized yet[/yellow]")
+        if typer.confirm("    Run `opc init` now?", default=True):
+            ctx = typer.Context(init)
+            init(project=None, yes=True, external_agent_preflight=True, trust_external_agents=True)
+
+    console.print(Panel("[green]Setup complete![/green]\nRun [bold]opc ui[/bold] to launch.", border_style="green"))
+
+
+@app.command()
 def status(
     project: str = typer.Option("default", "--project", "-p", help="Project ID used for workspace preflight."),
     external_agent_preflight: bool = typer.Option(

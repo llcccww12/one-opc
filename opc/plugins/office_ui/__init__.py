@@ -139,9 +139,35 @@ def register_cli(parent_app: typer.Typer) -> None:
         rebuild: bool = _typer.Option(False, "--rebuild", help="Force rebuild frontend"),
     ) -> None:
         """Launch the Office UI — visual frontend for OPC agents."""
+        import subprocess as _sp
+
         _sanitize_windows_ssl_env()
         # Auto-install aiohttp if needed
         _ensure_aiohttp()
+
+        # Pre-flight checks (non-blocking warnings)
+        _claude_ok = shutil.which("claude") is not None
+        _api_key_ok = False
+        _config_dir = None
+        try:
+            from opc.core.config import get_opc_home as _get_home
+            _config_dir = _get_home() / "config"
+            _llm_path = _config_dir / "llm_config.yaml"
+            if _llm_path.exists():
+                import yaml as _yaml
+                with open(_llm_path) as _f:
+                    _llm = _yaml.safe_load(_f) or {}
+                _api_key_ok = bool(str(_llm.get("api_key") or "").strip())
+        except Exception:
+            pass
+
+        if not _claude_ok or not _api_key_ok:
+            _warnings = []
+            if not _claude_ok:
+                _warnings.append("  ⚠  Claude Code CLI not found → npm install -g @anthropic-ai/claude-code")
+            if not _api_key_ok:
+                _warnings.append("  ⚠  API Key not configured → opc setup  or  edit ~/.opc/config/llm_config.yaml")
+            print("\n" + "\n".join(_warnings) + "\n")
 
         # Auto-build frontend if needed (or forced)
         if rebuild and _FRONTEND_DIST.is_dir():
