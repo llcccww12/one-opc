@@ -2264,15 +2264,7 @@ export default function App() {
       {/* Left icon nav rail */}
       <nav className={`rail${railExpanded ? ' expanded' : ''}`}>
         <div className="rail-top">
-          <span className="rail-logo" title="OpenOPC">O</span>
-          <div className={`status-indicator ${statusClass(status)}`} title={`${status}${statusDetail ? ` — ${statusDetail}` : ''}\n${wsUrl}`}>
-            <IconSignal />
-            <span className="status-dot" />
-          </div>
-          <div className={`status-indicator ${llmConfig?.api_key_set ? 'ok' : 'warn'}`} title={llmConfig?.api_key_set ? `LLM API Key: 已配置\nBase: ${llmConfig.api_base || '(default)'}` : 'LLM API Key: 未配置'}>
-            <IconKey />
-            <span className="status-dot" />
-          </div>
+          <img src="/logo.png" alt="One-OPC" className="rail-logo" title="One-OPC" />
         </div>
         <div className="rail-nav">
           <button className={`rail-btn${activePage === 'workspace' ? ' active' : ''}`} onClick={() => setActivePage('workspace')} title="Workspace">
@@ -2350,6 +2342,12 @@ export default function App() {
                 title={llmConfig?.api_key_set ? `Base: ${llmConfig.api_base || '(default)'}` : '未配置 API Key —— 点击左下角头像进入设置'}
               >
                 {llmConfig?.api_key_set ? '✓' : '✗'} {llmConfig?.default_model || '未设置模型'}
+              </span>
+              <span className={`stat-chip status-inline ${statusClass(status)}`} title={`${status}${statusDetail ? ` — ${statusDetail}` : ''}\n${wsUrl}`}>
+                <IconSignal /> <span className="status-dot-sm" />
+              </span>
+              <span className={`stat-chip status-inline ${llmConfig?.api_key_set ? 'ok' : 'warn'}`} title={llmConfig?.api_key_set ? `LLM API Key: 已配置\nBase: ${llmConfig.api_base || '(default)'}` : 'LLM API Key: 未配置'}>
+                <IconKey /> <span className="status-dot-sm" />
               </span>
             </div>
           </div>

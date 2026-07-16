@@ -166,12 +166,14 @@ html, body, #root {
   align-items: center;
   justify-content: center;
   border-radius: var(--radius);
-  background: var(--gradient-primary);
-  color: #fff;
-  font-size: 18px;
-  font-weight: 800;
-  letter-spacing: -0.02em;
+  overflow: hidden;
   box-shadow: var(--shadow-md);
+}
+
+.rail-logo img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
 }
 
 .rail-nav {
@@ -899,6 +901,42 @@ html, body, #root {
   font-weight: 700;
   color: var(--text);
 }
+
+/* Inline status indicators in stat-chips */
+.stat-chip.status-inline {
+  gap: 4px;
+  cursor: default;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
+}
+
+.stat-chip.status-inline svg {
+  width: 14px;
+  height: 14px;
+  color: var(--text-dim);
+}
+
+.stat-chip.status-inline.ok svg { color: var(--green); }
+.stat-chip.status-inline.warn svg { color: var(--yellow); }
+.stat-chip.status-inline.error svg { color: var(--red); }
+
+.status-dot-sm {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--text-dim);
+  flex-shrink: 0;
+}
+
+.stat-chip.status-inline.ok .status-dot-sm {
+  background: var(--green);
+  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.2);
+  animation: pulse-green 2s infinite;
+}
+
+.stat-chip.status-inline.warn .status-dot-sm { background: var(--yellow); }
+.stat-chip.status-inline.error .status-dot-sm { background: var(--red); }
 
 .topbar-right {
   display: flex;
