@@ -10,7 +10,6 @@ import inspect
 import json
 import math
 import re
-import secrets
 import time
 import uuid
 from datetime import datetime
@@ -66,7 +65,6 @@ if TYPE_CHECKING:
     from opc.plugins.office_ui.chat_store import ChatStore
     from opc.plugins.office_ui.event_adapter import EventAdapter
     from opc.plugins.office_ui.user_store import UserStore
-    from opc.plugins.office_ui.credential_vault import CredentialVault
 
 from opc.plugins.office_ui.dispatcher import Dispatcher
 from opc.plugins.office_ui.services import (
@@ -429,8 +427,6 @@ _OWNERSHIP_CHECKED_MESSAGE_TYPES = frozenset({
     "comms_read_message",
     "switch_project",
     "delete_project",
-    "list_workspace_files",
-    "delete_workspace_file",
 })
 
 
@@ -444,7 +440,6 @@ class WSHandler:
         chat_store: ChatStore,
         event_adapter: EventAdapter,
         user_store: UserStore | None = None,
-        credential_vault: CredentialVault | None = None,
     ) -> None:
         self.engine = engine
         self._root_engine = engine
@@ -454,7 +449,6 @@ class WSHandler:
         self.chat_store = chat_store
         self.event_adapter = event_adapter
         self._user_store = user_store
-        self._credential_vault = credential_vault
         self._client_user_ids: dict[Any, str] = {}
         self._clients: set[aiohttp.web.WebSocketResponse] = set()
         self._client_project_ids: dict[Any, str] = {}
@@ -4808,91 +4802,6 @@ class WSHandler:
             return "org", "custom"
         return "project", None
 
-    # ── VM dispatch helpers ────────────────────────────────────────────
-
-    async def _should_dispatch_to_vm(self, user_id: str | None) -> bool:
-        """Check if task should be dispatched to a connected cloud VM."""
-        if not user_id:
-            return False
-        registry = getattr(self.engine, "worker_registry", None)
-        vm_service = getattr(self.engine, "tenant_vm_service", None)
-        if not registry or not vm_service:
-            return False
-        if not registry.is_connected(user_id):
-            return False
-        try:
-            vm_status = await vm_service.get_status(user_id)
-            return vm_status.get("status") == "ready"
-        except Exception:
-            return False
-
-    async def _dispatch_to_vm(
-        self,
-        user_id: str,
-        task_id: str | None,
-        message: dict[str, Any],
-        on_progress: Any | None = None,
-        timeout: float = 3600,
-    ) -> Any | None:
-        """Dispatch task to a connected worker VM. Returns WorkerTaskOutcome or None on timeout."""
-        registry = self.engine.worker_registry
-        # Record activity so idle auto-stop does not kill a busy VM
-        vm_svc = getattr(self.engine, "tenant_vm_service", None)
-        if vm_svc:
-            vm_svc.record_activity(user_id)
-        return await registry.dispatch_run_task(
-            user_id, task_id or "", message, on_progress, timeout,
-        )
-
-    def _build_vm_run_message(
-        self,
-        task_id: str,
-        project_id: str,
-        content: str,
-    ) -> dict[str, Any] | None:
-        """Build the run_task message dict for WorkerRuntime, or None if adapter/LLM unavailable."""
-        engine = self.engine
-        adapter_registry = getattr(engine, "adapter_registry", None)
-        if not adapter_registry:
-            return None
-        adapter = adapter_registry.get("claude_code")
-        if not adapter:
-            return None
-
-        # Build a minimal Task-like object for the adapter's build_invocation.
-        from opc.core.models import Task as _Task, TaskStatus as _TS
-        stub_task = _Task(
-            id=task_id or "vm-dispatch",
-            title=content[:200],
-            description=content,
-            status=_TS.PENDING,
-            project_id=project_id,
-        )
-
-        try:
-            cmd, _metadata = adapter.build_invocation(stub_task, workspace_path=None)
-        except Exception:
-            return None
-
-        llm = getattr(engine, "llm", None)
-        api_key = ""
-        api_base = ""
-        default_model = ""
-        if llm:
-            api_key = str(getattr(llm, "_api_key", "") or "")
-            api_base = str(getattr(llm, "_api_base", "") or "")
-            default_model = str(getattr(getattr(llm, "config", None), "default_model", ""))
-
-        return {
-            "type": "run_task",
-            "task_id": task_id,
-            "project_id": project_id,
-            "cmd": cmd,
-            "api_key": api_key,
-            "api_base": api_base,
-            "default_model": default_model,
-        }
-
     async def _run_task(
         self,
         title: str,
@@ -4974,44 +4883,7 @@ class WSHandler:
                                 )
                         except Exception:
                             logger.opt(exception=True).debug("failed to mark run_task company runtime running")
-                    # ── VM dispatch: try cloud worker before local engine ──
-                    if await self._should_dispatch_to_vm(user_id):
-                        vm_msg = self._build_vm_run_message(task_id or "", pid, content)
-                        if vm_msg is not None:
-                            async def _on_vm_progress(text: str) -> None:
-                                await self.broadcast({"type": "task_progress", "payload": {
-                                    "task_id": task_id, "project_id": pid, "text": text,
-                                }})
-
-                            try:
-                                outcome = await self._dispatch_to_vm(
-                                    user_id, task_id, vm_msg,
-                                    on_progress=_on_vm_progress,
-                                )
-                            except Exception:
-                                logger.warning("VM dispatch failed for task %s, falling back to local", task_id, exc_info=True)
-                                outcome = None
-                            if outcome is not None:
-                                # VM handled the task — convert outcome to a response string
-                                response = outcome.stdout or ""
-                                if outcome.returncode != 0 and outcome.stderr:
-                                    response = (response + "\n" + outcome.stderr).strip()
-                                # Insert response as a chat message so the UI shows it
-                                if response:
-                                    resp_channel = f"session:{task_id}" if task_id else f"activity:{pid}"
-                                    msg = await self.chat_store.insert_message(
-                                        channel_id=resp_channel,
-                                        sender="agent",
-                                        sender_name="Agent",
-                                        content=response,
-                                        metadata={"task_id": task_id} if task_id else None,
-                                        project_id=pid,
-                                    )
-                                    await self.broadcast({"type": "session_message", "payload": msg})
-                                # Fall through to post-execution status updates below
-                            # outcome is None → timeout/disconnect, fall through to local
-                    if response is None:
-                        response = await engine.process_message(
+                    response = await engine.process_message(
                             content,
                             project_id=pid,
                             session_id=session_id,
@@ -9253,106 +9125,9 @@ class WSHandler:
         except ServiceError as exc:
             await self._send_service_error(ws, exc, action="update_llm_config")
 
-    async def _handle_get_vm_credentials(self, ws: Any, data: dict) -> None:
-        user_id = self._client_user_ids.get(ws)
-        api_key_set = False
-        api_base = ""
-        if user_id and user_id != "anonymous" and self._credential_vault is not None:
-            creds = await self._credential_vault.get_credentials(user_id)
-            if creds is not None:
-                api_key_set = True
-                api_base = creds[1]
-        await self._safe_send_json(
-            ws, {"type": "get_vm_credentials", "payload": {"ok": True, "api_key_set": api_key_set, "api_base": api_base}}
-        )
-
-    async def _handle_update_vm_credentials(self, ws: Any, data: dict) -> None:
-        user_id = self._client_user_ids.get(ws)
-        if not user_id or user_id == "anonymous" or self._credential_vault is None:
-            await self._safe_send_json(
-                ws, {"type": "update_vm_credentials", "payload": {"ok": False, "error": "unauthorized"}}
-            )
-            return
-
-        patch = data.get("patch", {}) or {}
-        api_base = str(patch.get("api_base") or "")
-        new_key = str(patch.get("api_key") or "").strip()
-
-        key_to_store = new_key
-        if not key_to_store:
-            existing = await self._credential_vault.get_credentials(user_id)
-            key_to_store = existing[0] if existing else ""
-
-        if not key_to_store:
-            await self._safe_send_json(
-                ws, {"type": "update_vm_credentials", "payload": {"ok": False, "error": "missing_api_key"}}
-            )
-            return
-
-        await self._credential_vault.set_credentials(user_id, key_to_store, api_base)
-        await self._safe_send_json(
-            ws, {"type": "update_vm_credentials", "payload": {"ok": True, "api_key_set": True, "api_base": api_base}}
-        )
-
     async def _handle_list_nodes(self, ws: Any, data: dict) -> None:
         result = await self._ensure_office_services().nodes.list_nodes()
         await self._safe_send_json(ws, {"type": "list_nodes", "payload": {"ok": True, **result.payload}})
-
-    async def _handle_list_workspace_files(self, ws: Any, data: dict) -> None:
-        project_id = str(data.get("project_id") or "")
-        owner_user_id = await self._user_store.get_project_owner(project_id) if self._user_store else None
-        if not owner_user_id or not self.engine.worker_registry.is_connected(owner_user_id):
-            await self._safe_send_json(
-                ws, {"type": "list_workspace_files", "payload": {"ok": False, "error": "worker_not_connected"}}
-            )
-            return
-
-        request_id = secrets.token_hex(8)
-        response = await self.engine.worker_registry.dispatch_request(
-            owner_user_id,
-            request_id,
-            {"type": "list_dir", "request_id": request_id, "project_id": project_id, "path": str(data.get("path") or "")},
-            timeout_seconds=30,
-        )
-        if response is None:
-            await self._safe_send_json(
-                ws, {"type": "list_workspace_files", "payload": {"ok": False, "error": "timeout"}}
-            )
-            return
-        if response.get("error"):
-            await self._safe_send_json(
-                ws, {"type": "list_workspace_files", "payload": {"ok": False, "error": response["error"]}}
-            )
-            return
-        await self._safe_send_json(
-            ws, {"type": "list_workspace_files", "payload": {"ok": True, "entries": response.get("entries", [])}}
-        )
-
-    async def _handle_delete_workspace_file(self, ws: Any, data: dict) -> None:
-        project_id = str(data.get("project_id") or "")
-        owner_user_id = await self._user_store.get_project_owner(project_id) if self._user_store else None
-        if not owner_user_id or not self.engine.worker_registry.is_connected(owner_user_id):
-            await self._safe_send_json(
-                ws, {"type": "delete_workspace_file", "payload": {"ok": False, "error": "worker_not_connected"}}
-            )
-            return
-
-        request_id = secrets.token_hex(8)
-        response = await self.engine.worker_registry.dispatch_request(
-            owner_user_id,
-            request_id,
-            {"type": "delete_file", "request_id": request_id, "project_id": project_id, "path": str(data.get("path") or "")},
-            timeout_seconds=30,
-        )
-        if response is None:
-            await self._safe_send_json(
-                ws, {"type": "delete_workspace_file", "payload": {"ok": False, "error": "timeout"}}
-            )
-            return
-        await self._safe_send_json(
-            ws,
-            {"type": "delete_workspace_file", "payload": {"ok": bool(response.get("ok")), "error": response.get("error")}},
-        )
 
     async def _handle_switch_project(self, ws: Any, data: dict) -> None:
         """Switch the active project view without rebinding in-flight runtimes."""
@@ -10215,11 +9990,7 @@ class WSHandler:
         "list_projects":       _handle_list_projects,
         "get_llm_config":      _handle_get_llm_config,
         "update_llm_config":   _handle_update_llm_config,
-        "get_vm_credentials":    _handle_get_vm_credentials,
-        "update_vm_credentials": _handle_update_vm_credentials,
         "list_nodes":          _handle_list_nodes,
-        "list_workspace_files":   _handle_list_workspace_files,
-        "delete_workspace_file":  _handle_delete_workspace_file,
         "create_project":      _handle_create_project,
         "delete_project":      _handle_delete_project,
         "switch_project":      _handle_switch_project,
