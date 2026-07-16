@@ -70,12 +70,19 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(dirname "$SCRIPT_DIR")"
 
 if [ -f "$REPO_DIR/pyproject.toml" ]; then
+    # Uninstall existing version first to avoid conflicts
+    $PYTHON -m pip uninstall opc -y 2>/dev/null || true
     # Installing from local repo
-    $PYTHON -m pip install -e "$REPO_DIR" --quiet 2>&1 | tail -3
+    $PYTHON -m pip install -e "$REPO_DIR" 2>&1 | tail -5
+    if [ $? -ne 0 ]; then
+        fail "Installation failed. Try manually: pip install -e $REPO_DIR"
+        exit 1
+    fi
     ok "OPC installed from local source"
 else
     # Installing from PyPI (if published)
-    $PYTHON -m pip install opc --quiet 2>&1 | tail -3 || {
+    $PYTHON -m pip uninstall opc -y 2>/dev/null || true
+    $PYTHON -m pip install opc 2>&1 | tail -5 || {
         fail "Cannot install OPC. Run this script from the repo directory, or publish to PyPI."
         exit 1
     }
