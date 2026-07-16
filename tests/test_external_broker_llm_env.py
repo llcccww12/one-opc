@@ -25,18 +25,14 @@ def _make_broker(llm_config: LLMConfig) -> ExternalAgentBroker:
 
 
 class ExternalBrokerLLMEnvTests(unittest.TestCase):
-    def test_custom_base_url_uses_auth_token_not_api_key(self) -> None:
-        # Third-party Claude-compatible relays (custom api_base) authenticate
-        # via `Authorization: Bearer` (ANTHROPIC_AUTH_TOKEN), not the
-        # `x-api-key` scheme ANTHROPIC_API_KEY uses. Sending ANTHROPIC_API_KEY
-        # here makes the relay reject the key as invalid even though the
-        # value itself is correct.
+    def test_custom_base_url_sets_api_key_and_base_url(self) -> None:
+        # Claude Code CLI only reads ANTHROPIC_API_KEY, so always set it
+        # even when api_base is configured (custom relay).
         broker = _make_broker(LLMConfig(api_key="sk-configured", api_base="https://proxy.example.com"))
         env: dict[str, str] = {}
         broker._apply_llm_config_env(env)
-        self.assertEqual(env["ANTHROPIC_AUTH_TOKEN"], "sk-configured")
+        self.assertEqual(env["ANTHROPIC_API_KEY"], "sk-configured")
         self.assertEqual(env["ANTHROPIC_BASE_URL"], "https://proxy.example.com")
-        self.assertNotIn("ANTHROPIC_API_KEY", env)
 
     def test_custom_base_url_sets_model_stripping_litellm_prefix(self) -> None:
         # A custom relay speaks its own model name, not a "claude-*" alias —
