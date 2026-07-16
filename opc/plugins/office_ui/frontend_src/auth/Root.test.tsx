@@ -9,8 +9,8 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 const source = readFileSync(join(__dirname, 'Root.tsx'), 'utf-8')
 
 assert.match(source, /<LoginScreen/, 'Root must render LoginScreen when unauthenticated')
-assert.match(source, /<BindNodePage/, 'Root must render BindNodePage when authenticated but VM is not ready')
-assert.match(source, /<App\s*\/>/, 'Root must render App once the VM is ready')
-assert.match(source, /getVmStatus\(/, "Root must check the caller's VM status")
+assert.doesNotMatch(source, /BindNodePage/, 'Root must not reference BindNodePage (cloud VM code removed)')
+assert.doesNotMatch(source, /getVmStatus/, 'Root must not reference getVmStatus (cloud VM code removed)')
+assert.match(source, /<App\s*\/>/, 'Root must render App when authenticated')
 
 console.log('Root.test.tsx passed')

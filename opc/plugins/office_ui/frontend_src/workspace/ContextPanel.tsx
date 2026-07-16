@@ -4,7 +4,6 @@ import type { ChatMessage, CheckpointReplyMetadata, OutgoingAttachmentPayload } 
 import type { AgentInfo, OrgInfoPayload, SavedOrgSummary } from '../types/visual'
 import type { CommsStatePayload, CommsMessagePayload } from '../lib/wsClient'
 import { CommsPanel } from './CommsPanel'
-import { FilesPanel, type WorkspaceFileEntry } from './FilesPanel'
 import { ProjectCockpit } from './ProjectCockpit'
 import { PRIORITY_META, type TaskPriority } from '../types/kanban'
 import { TaskHeaderBar } from '../chat/TaskHeaderBar'
@@ -70,8 +69,8 @@ interface ContextPanelProps {
   unreadCounts?: Record<string, number>
   multiSessionView?: boolean
 
-  panelTab: 'chat' | 'agents' | 'info' | 'comms' | 'team' | 'files'
-  onPanelTabChange: (tab: 'chat' | 'agents' | 'info' | 'comms' | 'team' | 'files') => void
+  panelTab: 'chat' | 'agents' | 'info' | 'comms' | 'team'
+  onPanelTabChange: (tab: 'chat' | 'agents' | 'info' | 'comms' | 'team') => void
 
   commsState?: CommsStatePayload | null
   commsMessage?: CommsMessagePayload | null
@@ -82,13 +81,6 @@ interface ContextPanelProps {
   recoveryStatus?: Record<string, unknown> | null
   canShowTeamTab?: boolean
   onTeamStopRun?: () => void
-  filesCurrentPath?: string
-  filesEntries?: WorkspaceFileEntry[] | null
-  filesError?: string | null
-  onFilesNavigate?: (path: string) => void
-  onFilesRefresh?: () => void
-  onFilesDelete?: (name: string) => void
-  filesDownloadUrlFor?: (name: string) => string
 
   onTitleChange: (taskId: string, title: string) => void
   onSessionConfigChange?: (taskId: string, execMode: string, companyProfile?: string, orgId?: string) => void
@@ -471,13 +463,6 @@ export function ContextPanel({
   recoveryStatus,
   canShowTeamTab = false,
   onTeamStopRun,
-  filesCurrentPath,
-  filesEntries,
-  filesError,
-  onFilesNavigate,
-  onFilesRefresh,
-  onFilesDelete,
-  filesDownloadUrlFor,
   onTitleChange,
   onSessionConfigChange,
   onSessionTaskAgentChange,
@@ -874,16 +859,6 @@ export function ContextPanel({
                       Team
                     </button>
                   )}
-                  {onFilesRefresh && (
-                    <button
-                      role="tab"
-                      aria-selected={panelTab === 'files'}
-                      className={`ctx-tab${panelTab === 'files' ? ' active' : ''}`}
-                      onClick={() => onPanelTabChange('files')}
-                    >
-                      Files
-                    </button>
-                  )}
                 </div>
               ) : isSecretary ? (
                 <span style={{ fontSize: 13, fontWeight: 600, padding: '0 4px' }}>Secretary</span>
@@ -1278,20 +1253,6 @@ export function ContextPanel({
                     commsState={commsState ?? null}
                     onStopRun={onTeamStopRun}
                     embedded
-                  />
-                </div>
-              )}
-
-              {panelTab === 'files' && onFilesNavigate && onFilesRefresh && onFilesDelete && filesDownloadUrlFor && (
-                <div style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
-                  <FilesPanel
-                    currentPath={filesCurrentPath ?? ''}
-                    entries={filesEntries ?? null}
-                    error={filesError ?? null}
-                    onNavigate={onFilesNavigate}
-                    onRefresh={onFilesRefresh}
-                    onDelete={onFilesDelete}
-                    downloadUrlFor={filesDownloadUrlFor}
                   />
                 </div>
               )}

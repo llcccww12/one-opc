@@ -3,7 +3,6 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { VisualSocketClient } from './lib/wsClient'
 import { getStoredToken, clearSession } from './lib/auth'
-import { getVmStatus, stopVm, startVm, type VmStatus } from './lib/vm'
 import { IdentityMenu } from './auth/IdentityMenu'
 import { NodesPanel } from './nodes/NodesPanel'
 import type { NodeCluster } from './nodes/NodesPanel'
@@ -17,13 +16,13 @@ import { HelpPanel } from './help/HelpPanel'
 import type { AgentInfo, EmployeeDetailPayload, OrgCreateMemberInput, OrgSavedCreatePayload, OrgEmployee, OrgInfoPayload, OrgRole, ReorgProposalInfo, SavedOrgSummary, SocketStatus, TalentTemplate, VisualEvent, VisualSnapshot } from './types/visual'
 import { useBoardStore, type BoardStoreState } from './kanban/BoardStore'
 import { WorkspacePage } from './workspace/WorkspacePage'
-import type { WorkspaceFileEntry } from './workspace/FilesPanel'
+
 import { useChatStore, type ChatStoreState } from './chat/ChatStore'
 import { useSessionStore, type SessionStoreState } from './stores/SessionStore'
 import { useProjectStore, type ProjectStoreState } from './stores/ProjectStore'
 import { ExecutionPanel } from './kanban/ExecutionPanel'
 import { ProjectSelector } from './components/ProjectSelector'
-import { IconSignal, IconCloud, IconKey } from './components/StatusIcons'
+import { IconSignal, IconKey } from './components/StatusIcons'
 import { OrgTab } from './org/OrgTab'
 import { notifyTaskAssigned } from './lib/taskChatBridge'
 import { mapCollabSyncPayload, mapBackendMessage, mapBackendChannel, mapBackendSession, mapBackendBoard, mapBackendColumn, mapBackendTask } from './lib/collabSync'
@@ -91,23 +90,6 @@ function statusClass(status: SocketStatus): string {
   if (status === 'error') return 'error'
   return 'off'
 }
-
-function vmStatusClass(status: VmStatus['status'] | undefined): string {
-  if (status === 'ready') return 'ok'
-  if (status === 'launching') return 'warn'
-  if (status === 'error') return 'error'
-  return ''
-}
-
-function vmStatusLabel(vmStatus: VmStatus | null): string {
-  if (!vmStatus || vmStatus.status === 'none') return '未绑定云主机'
-  if (vmStatus.status === 'ready') return '云主机：就绪'
-  if (vmStatus.status === 'launching') return '云主机：准备中'
-  if (vmStatus.status === 'stopped') return '云主机：已停止'
-  return `云主机：出错${vmStatus.error_message ? ` — ${vmStatus.error_message}` : ''}`
-}
-
-const VM_STATUS_POLL_MS = 30000
 
 function normalizeCompanyProfile(value?: string): 'corporate' | 'custom' {
   return normalizeSessionCompanyProfile(value)
@@ -482,8 +464,6 @@ export default function App() {
   const [wsUrlInput, setWsUrlInput] = useState(initialUrl)
   const [status, setStatus] = useState<SocketStatus>('disconnected')
   const [statusDetail, setStatusDetail] = useState('')
-  const [vmStatus, setVmStatus] = useState<VmStatus | null>(null)
-  const [vmActionLoading, setVmActionLoading] = useState(false)
   const [snapshot, setSnapshot] = useState<VisualSnapshot | null>(null)
   const [events, setEvents] = useState<VisualEvent[]>([])
   const [uiTick, setUiTick] = useState(0)
@@ -538,56 +518,12 @@ export default function App() {
   const [orgToast, setOrgToast] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null)
   const [llmConfig, setLlmConfig] = useState<{ default_model: string; api_base: string; api_key_set: boolean } | null>(null)
   const [llmConfigSaveMessage, setLlmConfigSaveMessage] = useState('')
-  const [vmCredentials, setVmCredentials] = useState<{ api_key_set: boolean; api_base: string } | null>(null)
-  const [vmCredentialsSaveMessage, setVmCredentialsSaveMessage] = useState('')
   const [nodesData, setNodesData] = useState<{ available: boolean; clusters: NodeCluster[] } | null>(null)
-  const [filesCurrentPath, setFilesCurrentPath] = useState('')
-  const [filesEntries, setFilesEntries] = useState<WorkspaceFileEntry[] | null>(null)
-  const [filesError, setFilesError] = useState<string | null>(null)
-  const filesCurrentPathRef = useRef('')
-  useEffect(() => {
-    filesCurrentPathRef.current = filesCurrentPath
-  }, [filesCurrentPath])
   const requestLlmConfig = useCallback(() => { clientRef.current?.getLlmConfig() }, [])
   const saveLlmConfig = useCallback((patch: { default_model?: string; api_base?: string; api_key?: string }) => { clientRef.current?.updateLlmConfig(patch) }, [])
-  const requestVmCredentials = useCallback(() => { clientRef.current?.getVmCredentials() }, [])
-  const saveVmCredentials = useCallback((patch: { api_key?: string; api_base?: string }) => { clientRef.current?.updateVmCredentials(patch) }, [])
-
   useEffect(() => {
     if (activePage === 'nodes') clientRef.current?.listNodes()
   }, [activePage])
-  useEffect(() => {
-    const poll = () => {
-      const token = getStoredToken()
-      if (!token) return
-      getVmStatus(token).then(setVmStatus)
-    }
-    poll()
-    const interval = setInterval(poll, VM_STATUS_POLL_MS)
-    return () => clearInterval(interval)
-  }, [])
-  const handleVmStop = useCallback(async () => {
-    const token = getStoredToken()
-    if (!token) return
-    setVmActionLoading(true)
-    try {
-      const result = await stopVm(token)
-      setVmStatus(result)
-    } finally {
-      setVmActionLoading(false)
-    }
-  }, [])
-  const handleVmStart = useCallback(async () => {
-    const token = getStoredToken()
-    if (!token) return
-    setVmActionLoading(true)
-    try {
-      const result = await startVm(token)
-      setVmStatus(result)
-    } finally {
-      setVmActionLoading(false)
-    }
-  }, [])
   const timersRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set())
   const replayedEventIds = useRef<Set<string>>(new Set())
   const swarmAgentsRef = useRef<AgentInfo[]>([])
@@ -1735,37 +1671,8 @@ export default function App() {
           setLlmConfigSaveMessage(payload.error || 'Save failed')
         }
       },
-      onGetVmCredentials: (payload) => {
-        setVmCredentials({ api_key_set: payload.api_key_set, api_base: payload.api_base })
-      },
-      onUpdateVmCredentials: (payload) => {
-        if (payload.ok) {
-          setVmCredentials({
-            api_key_set: Boolean(payload.api_key_set),
-            api_base: payload.api_base ?? '',
-          })
-          setVmCredentialsSaveMessage('Saved')
-        } else {
-          setVmCredentialsSaveMessage(payload.error || 'Save failed')
-        }
-      },
       onListNodes: (payload) => {
         setNodesData(payload)
-      },
-      onListWorkspaceFiles: (payload) => {
-        if (payload.ok) {
-          setFilesEntries(payload.entries ?? [])
-          setFilesError(null)
-        } else {
-          setFilesError(payload.error || 'Failed to list files')
-        }
-      },
-      onDeleteWorkspaceFile: (payload) => {
-        if (payload.ok) {
-          clientRef.current?.listWorkspaceFiles(getActiveProjectId(), filesCurrentPathRef.current)
-        } else {
-          setFilesError(payload.error || 'Delete failed')
-        }
       },
       onOrgInfo: (payload) => {
         const normalized = normalizeOrgInfoPayload(payload)
@@ -1790,13 +1697,6 @@ export default function App() {
       onCommsMessage: (payload) => {
         if (!payloadMatchesActiveProject(payload as unknown as Record<string, unknown>, true)) return
         setCommsMessage(payload)
-      },
-      onVmStatusChanged: (payload) => {
-        setVmStatus({
-          status: payload.status as VmStatus['status'],
-          cluster_name: payload.cluster_name ?? null,
-          error_message: payload.error_message ?? null,
-        })
       },
       onRecoveryResult: (payload) => {
         if (!payloadMatchesActiveProject(payload as unknown as Record<string, unknown>, false)) return
@@ -2373,30 +2273,6 @@ export default function App() {
             <IconSignal />
             <span className="status-dot" />
           </div>
-          <div className={`status-indicator ${vmStatusClass(vmStatus?.status)}`} title={vmStatusLabel(vmStatus)}>
-            <IconCloud />
-            <span className="status-dot" />
-            {vmStatus?.status === 'ready' && (
-              <button
-                className="vm-action-btn"
-                title="停止云主机"
-                disabled={vmActionLoading}
-                onClick={(e) => { e.stopPropagation(); handleVmStop() }}
-              >
-                {vmActionLoading ? '...' : '⏸'}
-              </button>
-            )}
-            {vmStatus?.status === 'stopped' && (
-              <button
-                className="vm-action-btn"
-                title="启动云主机"
-                disabled={vmActionLoading}
-                onClick={(e) => { e.stopPropagation(); handleVmStart() }}
-              >
-                {vmActionLoading ? '...' : '▶'}
-              </button>
-            )}
-          </div>
           <div className={`status-indicator ${llmConfig?.api_key_set ? 'ok' : 'warn'}`} title={llmConfig?.api_key_set ? `LLM API Key: 已配置\nBase: ${llmConfig.api_base || '(default)'}` : 'LLM API Key: 未配置'}>
             <IconKey />
             <span className="status-dot" />
@@ -2435,10 +2311,6 @@ export default function App() {
             onRequestLlmConfig={requestLlmConfig}
             onSaveLlmConfig={saveLlmConfig}
             saveMessage={llmConfigSaveMessage}
-            vmCredentials={vmCredentials}
-            onRequestVmCredentials={requestVmCredentials}
-            onSaveVmCredentials={saveVmCredentials}
-            vmCredentialsSaveMessage={vmCredentialsSaveMessage}
           />
           <button className={`rail-btn${showHelp ? ' active' : ''}`} onClick={() => setShowHelp((v) => !v)} title="使用手册">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
@@ -2556,17 +2428,6 @@ export default function App() {
           }}
           onCommsReadMessage={(path) => clientRef.current?.commsReadMessage(getActiveProjectId(), path)}
           onReviewDecision={(workItemId, decision, feedback) => clientRef.current?.sendReviewDecision(getActiveProjectId(), workItemId, decision, feedback)}
-          filesCurrentPath={filesCurrentPath}
-          filesEntries={filesEntries}
-          filesError={filesError}
-          onFilesNavigate={(path) => { setFilesCurrentPath(path); clientRef.current?.listWorkspaceFiles(getActiveProjectId(), path) }}
-          onFilesRefresh={() => clientRef.current?.listWorkspaceFiles(getActiveProjectId(), filesCurrentPath)}
-          onFilesDelete={(name) => clientRef.current?.deleteWorkspaceFile(getActiveProjectId(), filesCurrentPath ? `${filesCurrentPath}/${name}` : name)}
-          filesDownloadUrlFor={(name) => {
-            const fullPath = filesCurrentPath ? `${filesCurrentPath}/${name}` : name
-            const token = getStoredToken() ?? ''
-            return `/api/vm/files/download?project_id=${encodeURIComponent(getActiveProjectId())}&path=${encodeURIComponent(fullPath)}&token=${encodeURIComponent(token)}`
-          }}
           onRunTask={(taskId, title, desc, mode, profile) => {
             clientRef.current?.send({ type: 'run_task', project_id: getActiveProjectId(), task_id: taskId, title, description: desc, mode, profile })
           }}

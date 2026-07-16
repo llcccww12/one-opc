@@ -80,7 +80,6 @@ class ExternalAgentBroker:
     _STREAM_TRANSCRIPT_HEAD_LINES = 40
     _STREAM_TRANSCRIPT_SUMMARY_EVERY = 25
     _STREAM_TRANSCRIPT_LINE_LIMIT = 2000
-    _WORKER_TASK_TIMEOUT_SECONDS = 600
 
     _PATH_HINT_RE = re.compile(
         r"([A-Za-z]:\\[^\s\"']+|(?:\.\.?[\\/])?[A-Za-z0-9._-]+(?:[\\/][A-Za-z0-9._-]+)+)",
@@ -103,87 +102,6 @@ class ExternalAgentBroker:
         self.task_preparer = task_preparer
         self.communication = communication
         self._llm_config_provider = llm_config_provider
-        self._worker_registry = None
-        self._credential_provider = None
-        self._owner_resolver = None
-
-    def configure_worker_relay(self, *, worker_registry, credential_provider, owner_resolver) -> None:
-        """Wire cross-cutting, office-UI-owned dependencies onto this broker
-        post-construction (they don't exist yet when OPCEngine.initialize()
-        constructs this broker — see server.py's post-init wiring)."""
-        self._worker_registry = worker_registry
-        self._credential_provider = credential_provider
-        self._owner_resolver = owner_resolver
-
-    async def _run_via_worker(
-        self,
-        *,
-        adapter: ExternalAgentAdapter,
-        task: Task,
-        workspace_path: str,
-        cmd: list[str],
-        metadata: dict,
-        on_progress: Callable[[str], Coroutine[Any, Any, None]] | None,
-    ) -> TaskResult:
-        """Dispatch to the task owner's connected opc worker instead of running
-        cmd as a local subprocess. Never falls back to local execution — a
-        missing worker/credential is a hard failure, since falling back would
-        defeat the whole point of per-user VM isolation."""
-        if self._worker_registry is None or self._owner_resolver is None or self._credential_provider is None:
-            return TaskResult(status=TaskStatus.FAILED, content="云主机执行未启用", artifacts=dict(metadata))
-
-        project_id = str(getattr(task, "project_id", "") or "default")
-        owner_user_id = await self._owner_resolver(project_id)
-        if not owner_user_id:
-            return TaskResult(status=TaskStatus.FAILED, content="云主机未连接：无法确定任务所属用户", artifacts=dict(metadata))
-
-        if not self._worker_registry.is_connected(owner_user_id):
-            return TaskResult(status=TaskStatus.FAILED, content="云主机未连接，请检查绑定状态", artifacts=dict(metadata))
-
-        credentials = await self._credential_provider(owner_user_id)
-        if credentials is None:
-            return TaskResult(status=TaskStatus.FAILED, content="请先配置你的模型 API Key", artifacts=dict(metadata))
-        api_key, api_base = credentials
-
-        # default_model is a platform-wide setting (not per-user BYOK), same
-        # source _apply_llm_config_env uses for the local-execution path — a
-        # custom api_base (relay) needs it to know which model name to send,
-        # since Claude Code's own default model alias is meaningless to a
-        # non-Anthropic relay.
-        default_model = ""
-        if self._llm_config_provider is not None:
-            default_model = str(getattr(self._llm_config_provider(), "default_model", "") or "").strip()
-
-        async def _forward_progress(text: str) -> None:
-            if on_progress is not None:
-                await on_progress(text)
-
-        outcome = await self._worker_registry.dispatch_run_task(
-            owner_user_id,
-            task.id,
-            {
-                "type": "run_task",
-                "task_id": task.id,
-                "project_id": project_id,
-                "cmd": cmd,
-                "api_key": api_key,
-                "api_base": api_base,
-                "default_model": default_model,
-            },
-            _forward_progress,
-            timeout_seconds=self._WORKER_TASK_TIMEOUT_SECONDS,
-        )
-
-        if outcome is None:
-            return TaskResult(status=TaskStatus.FAILED, content="云主机执行超时或连接中断", artifacts=dict(metadata))
-
-        artifacts = dict(metadata)
-        artifacts["stderr"] = outcome.stderr
-        if outcome.resume_session_id:
-            artifacts["resume_session_id"] = outcome.resume_session_id
-        status = TaskStatus.DONE if outcome.returncode == 0 else TaskStatus.FAILED
-        return TaskResult(status=status, content=outcome.stdout, artifacts=artifacts)
-
     def _apply_llm_config_env(self, env: dict[str, str]) -> None:
         """Inject the currently-configured LLM api_key/api_base into env, in place.
 
@@ -438,22 +356,7 @@ class ExternalAgentBroker:
             await self._persist_session(adapter, task, workspace_path, result.artifacts or {}, result)
             return result
 
-        worker_owner_user_id: str | None = None
-        if self._worker_registry is not None and self._owner_resolver is not None:
-            candidate_owner = await self._owner_resolver(str(getattr(task, "project_id", "") or "default"))
-            if candidate_owner and self._worker_registry.is_connected(candidate_owner):
-                worker_owner_user_id = candidate_owner
-
-        if worker_owner_user_id is not None:
-            result = await self._run_via_worker(
-                adapter=adapter,
-                task=task,
-                workspace_path=workspace_path,
-                cmd=cmd,
-                metadata=metadata,
-                on_progress=on_progress,
-            )
-        elif mode == "interactive" and adapter.supports_interactive():
+        if mode == "interactive" and adapter.supports_interactive():
             result = await self._run_interactive(
                 adapter,
                 task,

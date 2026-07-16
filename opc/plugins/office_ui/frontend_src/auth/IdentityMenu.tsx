@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
 import { clearSession, getStoredUsername } from '../lib/auth'
-import { SettingsPanel, type LlmConfigPayload, type VmCredentialsPayload } from './SettingsPanel'
+import { SettingsPanel, type LlmConfigPayload } from './SettingsPanel'
 import './identityMenu.css'
 
 interface IdentityMenuProps {
@@ -9,10 +9,6 @@ interface IdentityMenuProps {
   onRequestLlmConfig: () => void
   onSaveLlmConfig: (patch: { default_model?: string; api_base?: string; api_key?: string }) => void
   saveMessage: string
-  vmCredentials: VmCredentialsPayload | null
-  onRequestVmCredentials: () => void
-  onSaveVmCredentials: (patch: { api_key?: string; api_base?: string }) => void
-  vmCredentialsSaveMessage: string
 }
 
 export function IdentityMenu({
@@ -20,10 +16,6 @@ export function IdentityMenu({
   onRequestLlmConfig,
   onSaveLlmConfig,
   saveMessage,
-  vmCredentials,
-  onRequestVmCredentials,
-  onSaveVmCredentials,
-  vmCredentialsSaveMessage,
 }: IdentityMenuProps) {
   const [open, setOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -90,10 +82,6 @@ export function IdentityMenu({
         onRequestLlmConfig={onRequestLlmConfig}
         onSaveLlmConfig={onSaveLlmConfig}
         saveMessage={saveMessage}
-        vmCredentials={vmCredentials}
-        onRequestVmCredentials={onRequestVmCredentials}
-        onSaveVmCredentials={onSaveVmCredentials}
-        vmCredentialsSaveMessage={vmCredentialsSaveMessage}
       />
     </div>
   )

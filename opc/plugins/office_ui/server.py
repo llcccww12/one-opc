@@ -25,12 +25,6 @@ from opc.plugins.office_ui.agent_store import AgentStore
 from opc.plugins.office_ui.chat_store import ChatStore
 from opc.plugins.office_ui.auth_routes import make_login_handler, make_register_handler
 from opc.plugins.office_ui.user_store import UserStore
-from opc.plugins.office_ui.credential_vault import CredentialVault
-from opc.plugins.office_ui.tenant_vm_store import TenantVmStore
-from opc.plugins.office_ui.tenant_vm_service import TenantVmService
-from opc.plugins.office_ui.bind_routes import make_bind_vm_handler, make_vm_status_handler, make_vm_stop_handler, make_vm_start_handler
-from opc.plugins.office_ui.worker_ws import make_worker_ws_handler
-from opc.plugins.office_ui.file_download_routes import make_file_download_handler
 from opc.plugins.office_ui.event_adapter import EventAdapter
 from opc.plugins.office_ui.terminal import server_banner
 from opc.plugins.office_ui.terminal import status as terminal_status
@@ -132,30 +126,13 @@ async def create_app(
     user_store = UserStore(db)
     await user_store.initialize()
 
-    credential_vault = CredentialVault(db, opc_home / "credential_key")
-    await credential_vault.initialize()
-
-    tenant_vm_store = TenantVmStore(db)
-    await tenant_vm_store.initialize()
-    tenant_vm_service = TenantVmService(tenant_vm_store, control_plane_url=os.environ.get("OPC_CONTROL_PLANE_URL", ""))
-    await tenant_vm_service.recover_from_restart()
-
     event_adapter = EventAdapter()
 
     # ── Initialize engine (this starts all OPC layers) ────────────────
     await engine.initialize()
 
-    # ── Wire cross-cutting deps onto the broker (constructed inside
-    # engine.initialize(), but credential_provider/owner_resolver depend on
-    # office_ui-owned stores that only exist here) ─────────────────────
-    engine.external_broker.configure_worker_relay(
-        worker_registry=engine.worker_registry,
-        credential_provider=credential_vault.get_credentials,
-        owner_resolver=user_store.get_project_owner,
-    )
-
     # ── WSHandler ─────────────────────────────────────────────────────
-    ws_handler = WSHandler(engine, agent_store, chat_store, event_adapter, user_store, credential_vault)
+    ws_handler = WSHandler(engine, agent_store, chat_store, event_adapter, user_store)
 
     # Wire engine callbacks through project-bound wrappers so project switches
     # do not retarget in-flight progress/runtime events to the active view.

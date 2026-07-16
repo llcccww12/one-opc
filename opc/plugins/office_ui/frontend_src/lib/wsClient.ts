@@ -61,14 +61,11 @@ interface SocketHandlers {
   onOrgSavedDelete?: (payload: { ok: boolean; name: string; error?: string }) => void
   onGetLlmConfig?: (payload: { default_model: string; api_base: string; api_key_set: boolean }) => void
   onUpdateLlmConfig?: (payload: { ok: boolean; default_model?: string; api_base?: string; api_key_set?: boolean; error?: string }) => void
-  onGetVmCredentials?: (payload: { ok: boolean; api_key_set: boolean; api_base: string }) => void
-  onUpdateVmCredentials?: (payload: { ok: boolean; api_key_set?: boolean; api_base?: string; error?: string }) => void
   onListNodes?: (payload: { available: boolean; clusters: Array<{ name: string; status: string; region: string; instance_type: string; price_per_hour: number | null; runtime_seconds: number | null }> }) => void
   onListWorkspaceFiles?: (payload: { ok: boolean; entries?: Array<{ name: string; is_dir: boolean; size: number; mtime: number }>; error?: string }) => void
   onDeleteWorkspaceFile?: (payload: { ok: boolean; error?: string }) => void
   onCommsState?: (payload: CommsStatePayload) => void
   onCommsMessage?: (payload: CommsMessagePayload) => void
-  onVmStatusChanged?: (payload: { user_id: string; status: string; cluster_name: string | null; error_message: string | null }) => void
 }
 
 export interface CommsMessageItem {
@@ -651,14 +648,6 @@ export class VisualSocketClient {
     this.send({ type: 'update_llm_config', patch })
   }
 
-  getVmCredentials(): void {
-    this.send({ type: 'get_vm_credentials' })
-  }
-
-  updateVmCredentials(patch: { api_key?: string; api_base?: string }): void {
-    this.send({ type: 'update_vm_credentials', patch })
-  }
-
   listNodes(): void {
     this.send({ type: 'list_nodes' })
   }
@@ -881,12 +870,6 @@ export class VisualSocketClient {
       case 'update_llm_config':
         this.handlers.onUpdateLlmConfig?.(parsed.payload as { ok: boolean; default_model?: string; api_base?: string; api_key_set?: boolean; error?: string })
         break
-      case 'get_vm_credentials':
-        this.handlers.onGetVmCredentials?.(parsed.payload as { ok: boolean; api_key_set: boolean; api_base: string })
-        break
-      case 'update_vm_credentials':
-        this.handlers.onUpdateVmCredentials?.(parsed.payload as { ok: boolean; api_key_set?: boolean; api_base?: string; error?: string })
-        break
       case 'list_nodes':
         this.handlers.onListNodes?.(parsed.payload as { available: boolean; clusters: any[] })
         break
@@ -898,9 +881,6 @@ export class VisualSocketClient {
         break
       case 'pong':
         this.handlePong()
-        break
-      case 'vm_status_changed':
-        this.handlers.onVmStatusChanged?.(parsed.payload as { user_id: string; status: string; cluster_name: string | null; error_message: string | null })
         break
       default:
         break
