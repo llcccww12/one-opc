@@ -23,8 +23,6 @@ from opc.core.config import OPCConfig, get_opc_home
 from opc.engine import OPCEngine
 from opc.plugins.office_ui.agent_store import AgentStore
 from opc.plugins.office_ui.chat_store import ChatStore
-from opc.plugins.office_ui.auth_routes import make_login_handler, make_register_handler
-from opc.plugins.office_ui.user_store import UserStore
 from opc.plugins.office_ui.event_adapter import EventAdapter
 from opc.plugins.office_ui.terminal import server_banner
 from opc.plugins.office_ui.terminal import status as terminal_status
@@ -123,16 +121,13 @@ async def create_app(
     chat_store = ChatStore(db)
     await chat_store.initialize()
 
-    user_store = UserStore(db)
-    await user_store.initialize()
-
     event_adapter = EventAdapter()
 
     # ── Initialize engine (this starts all OPC layers) ────────────────
     await engine.initialize()
 
     # ── WSHandler ─────────────────────────────────────────────────────
-    ws_handler = WSHandler(engine, agent_store, chat_store, event_adapter, user_store)
+    ws_handler = WSHandler(engine, agent_store, chat_store, event_adapter)
 
     # Wire engine callbacks through project-bound wrappers so project switches
     # do not retarget in-flight progress/runtime events to the active view.
@@ -175,7 +170,6 @@ async def create_app(
     app["db"] = db
     app["ws_handler"] = ws_handler
     app["instance_lock"] = instance_lock
-    app["user_store"] = user_store
 
     # ── Routes ────────────────────────────────────────────────────────
     app.router.add_get("/ws", ws_handler.handle_ws)
@@ -185,10 +179,6 @@ async def create_app(
         "/api/attachments/{attachment_id}/{filename}",
         _make_attachment_handler(engine),
     )
-
-    # Account registration/login (must be registered before the SPA catch-all)
-    app.router.add_post("/api/register", make_register_handler(user_store))
-    app.router.add_post("/api/login", make_login_handler(user_store))
 
     # SPA: serve static files, fallback to index.html
     if _STATIC_DIR.is_dir():

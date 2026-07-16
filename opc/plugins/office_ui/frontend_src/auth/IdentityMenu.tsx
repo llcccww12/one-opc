@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
-import { clearSession, getStoredUsername } from '../lib/auth'
 import { SettingsPanel, type LlmConfigPayload } from './SettingsPanel'
 import './identityMenu.css'
 
@@ -23,7 +22,6 @@ export function IdentityMenu({
   const wrapperRef = useRef<HTMLDivElement>(null)
   const avatarRef = useRef<HTMLButtonElement>(null)
   const popoverRef = useRef<HTMLDivElement>(null)
-  const username = getStoredUsername()
 
   useEffect(() => {
     const onOutsideClick = (e: MouseEvent) => {
@@ -40,9 +38,6 @@ export function IdentityMenu({
 
   useEffect(() => {
     if (!open || !avatarRef.current) return
-    // .rail clips overflowing descendants (needed for its width-collapse transition),
-    // which also clips absolutely-positioned popovers from hit-testing. Escape it by
-    // positioning the popover with `fixed` at the avatar's on-screen coordinates.
     const rect = avatarRef.current.getBoundingClientRect()
     setPopoverStyle({
       position: 'fixed',
@@ -51,26 +46,15 @@ export function IdentityMenu({
     })
   }, [open])
 
-  if (!username) return null
-
-  const handleLogout = () => {
-    clearSession()
-    window.location.reload()
-  }
-
   return (
     <div className="identity-wrap" ref={wrapperRef}>
-      <button type="button" className="identity-avatar" ref={avatarRef} onClick={() => setOpen(o => !o)} title={username}>
-        {username.charAt(0).toUpperCase()}
+      <button type="button" className="identity-avatar" ref={avatarRef} onClick={() => setOpen(o => !o)} title="Settings">
+        S
       </button>
       {open && createPortal(
         <div className="identity-popover" role="menu" style={popoverStyle} ref={popoverRef}>
-          <div className="identity-popover-username">{username}</div>
           <button type="button" className="identity-popover-item" role="menuitem" onClick={() => { setSettingsOpen(true); setOpen(false) }}>
             模型 / API Key 设置
-          </button>
-          <button type="button" className="identity-popover-item" role="menuitem" onClick={handleLogout}>
-            退出登录
           </button>
         </div>,
         document.body,

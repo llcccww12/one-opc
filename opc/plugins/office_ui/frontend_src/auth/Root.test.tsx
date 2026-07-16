@@ -8,9 +8,8 @@ import { dirname, join } from 'node:path'
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const source = readFileSync(join(__dirname, 'Root.tsx'), 'utf-8')
 
-assert.match(source, /<LoginScreen/, 'Root must render LoginScreen when unauthenticated')
-assert.doesNotMatch(source, /BindNodePage/, 'Root must not reference BindNodePage (cloud VM code removed)')
-assert.doesNotMatch(source, /getVmStatus/, 'Root must not reference getVmStatus (cloud VM code removed)')
-assert.match(source, /<App\s*\/>/, 'Root must render App when authenticated')
+assert.doesNotMatch(source, /LoginScreen/, 'Root must not reference LoginScreen (auth removed)')
+assert.doesNotMatch(source, /getStoredToken/, 'Root must not reference getStoredToken (auth removed)')
+assert.match(source, /<App\s*\/>/, 'Root must render App directly')
 
 console.log('Root.test.tsx passed')

@@ -64,7 +64,6 @@ if TYPE_CHECKING:
     from opc.plugins.office_ui.agent_store import AgentStore
     from opc.plugins.office_ui.chat_store import ChatStore
     from opc.plugins.office_ui.event_adapter import EventAdapter
-    from opc.plugins.office_ui.user_store import UserStore
 
 from opc.plugins.office_ui.dispatcher import Dispatcher
 from opc.plugins.office_ui.services import (
@@ -1134,19 +1133,11 @@ class WSHandler:
     # ══════════════════════════════════════════════════════════════════════
 
     async def _authenticate_ws_request(self, request: Any) -> str | None:
-        """Resolve the user_id for an inbound WS connection, or None to reject it.
+        """Resolve the user_id for an inbound WS connection.
 
-        When no user_store is configured (the common case in unit tests that
-        construct WSHandler directly), auth is skipped entirely — only the
-        real office-UI server wires a UserStore, so production always enforces
-        this check.
+        Auth is disabled — the product is local-only with no login.
         """
-        if self._user_store is None:
-            return "anonymous"
-        token = request.query.get("token")
-        if not token:
-            return None
-        return await self._user_store.get_user_id_for_token(token)
+        return "anonymous"
 
     async def handle_ws(self, request: aiohttp.web.Request) -> aiohttp.web.WebSocketResponse:
         """Handle a WebSocket connection."""
@@ -1171,20 +1162,6 @@ class WSHandler:
 
             # Send initial snapshot
             initial_project_id = self._active_engine_project_id()
-            connecting_user_id = self._client_user_ids.get(ws)
-            try:
-                await self._ensure_office_services().project.assert_access(initial_project_id, connecting_user_id)
-            except ServiceError:
-                owned = await self._ensure_office_services().project.list(owner_user_id=connecting_user_id)
-                owned_ids = [entry["id"] for entry in owned.payload.get("projects", [])]
-                if owned_ids:
-                    initial_project_id = owned_ids[0]
-                    await self.services.project.switch(initial_project_id, include_snapshot=False)
-                # else: this account owns no project yet. It will keep seeing the
-                # currently-active project's initial snapshot until it creates its
-                # own — a known residual gap for brand-new multi-account installs,
-                # not covered by this task (create_project is unaffected: it always
-                # records the new project under the creator, per Task 3).
             self._client_project_ids[ws] = initial_project_id
             snapshot = await build_snapshot(
                 self.engine, self.agent_store, self.chat_store, self.event_adapter

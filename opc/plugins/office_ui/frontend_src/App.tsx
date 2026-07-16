@@ -2,7 +2,6 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { VisualSocketClient } from './lib/wsClient'
-import { getStoredToken, clearSession } from './lib/auth'
 import { IdentityMenu } from './auth/IdentityMenu'
 import { NodesPanel } from './nodes/NodesPanel'
 import type { NodeCluster } from './nodes/NodesPanel'
@@ -79,9 +78,7 @@ type AppExecMode = 'task' | 'company' | 'org'
 
 function defaultWsUrl(): string {
   const wsProto = window.location.protocol === 'https:' ? 'wss' : 'ws'
-  const token = getStoredToken()
-  const query = token ? `?token=${encodeURIComponent(token)}` : ''
-  return `${wsProto}://${window.location.hostname}:${window.location.port || '8765'}/ws${query}`
+  return `${wsProto}://${window.location.hostname}:${window.location.port || '8765'}/ws`
 }
 
 function statusClass(status: SocketStatus): string {
@@ -1131,8 +1128,7 @@ export default function App() {
         }
       },
       onAuthError: () => {
-        clearSession()
-        window.location.reload()
+        // Auth disabled — no-op
       },
       onCollabMessage: (type, payload) => {
         try {
