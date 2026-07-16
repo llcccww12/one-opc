@@ -164,6 +164,39 @@ def _create_default_skills(opc_home: Path) -> None:
                 dest.write_bytes(child.read_bytes())
 
 
+def _create_default_talent_templates(opc_home: Path) -> None:
+    """Copy bundled talent templates to the OPC home prompts/talent directory."""
+    import shutil
+
+    # Try repo path first (development mode)
+    repo_talent = Path(__file__).parent.parent.parent / "config" / "prompts" / "talent"
+    target_talent = opc_home / "prompts" / "talent"
+    target_talent.mkdir(parents=True, exist_ok=True)
+
+    copied = False
+    if repo_talent.exists():
+        for md_file in repo_talent.glob("*.md"):
+            dest = target_talent / md_file.name
+            if not dest.exists():
+                shutil.copy2(md_file, dest)
+            copied = True
+    if copied:
+        return
+
+    # Try packaged config_templates (pip install mode)
+    try:
+        resource_talent = importlib_resources.files("opc").joinpath("config_templates", "prompts", "talent")
+    except Exception:
+        return
+    if not resource_talent.is_dir():
+        return
+    for child in resource_talent.iterdir():
+        if child.is_file() and child.name.endswith(".md"):
+            dest = target_talent / child.name
+            if not dest.exists():
+                dest.write_bytes(child.read_bytes())
+
+
 def _progress_callback():
     """Create an async progress callback for streaming agent output."""
     async def callback(text: str, **_: Any) -> None:
@@ -1120,6 +1153,9 @@ def init(
 
     # Create default skills
     _create_default_skills(opc_home)
+
+    # Create default talent templates
+    _create_default_talent_templates(opc_home)
 
     # Create default global memory.
     from opc.layer5_memory.approval_allowlist import ApprovalAllowlistManager
